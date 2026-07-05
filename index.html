@@ -3,113 +3,231 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Road to HYROX Budapest 🏁</title>
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+<title>HYROX RACE — Andrea vs Paw</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    --sky1:#7ec8f7; --sky2:#c9ecff; --grass:#7ccf6e; --grass2:#5cb84f;
-    --road:#5a5a6e; --line:#ffe66d; --card:#ffffff; --ink:#2b2d42;
-    --a-color:#e63946; --p-color:#457b9d; --gold:#ffb703;
+    --cream:#f3eee2; --navy:#171a2b; --card:#faf7ee; --line:#e3ddcc;
+    --blue:#1d55c4; --red:#d63b2f; --gold:#f2b705; --ink:#1c1e2b; --muted:#6b6e80;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:'Fredoka',sans-serif; color:var(--ink); background:linear-gradient(var(--sky1),var(--sky2) 55%,var(--grass) 55.2%,var(--grass2)); min-height:100vh; }
-  .wrap { max-width:980px; margin:0 auto; padding:24px 16px 60px; }
-  header { text-align:center; margin-bottom:18px; }
-  h1 { font-size:clamp(28px,5vw,44px); font-weight:700; text-shadow:0 3px 0 rgba(0,0,0,.12); color:#fff; letter-spacing:1px; }
-  .countdown { display:inline-block; margin-top:8px; background:var(--ink); color:#fff; padding:8px 20px; border-radius:999px; font-size:18px; font-weight:600; box-shadow:0 4px 0 rgba(0,0,0,.2); }
-  .countdown b { color:var(--gold); font-size:24px; }
-  .updated { margin-top:8px; font-size:13px; color:#2b2d42aa; }
+  body { font-family:'Inter',sans-serif; background:var(--cream); color:var(--ink); min-height:100vh; }
+  .wrap { max-width:1020px; margin:0 auto; padding:18px 14px 40px; }
+  .oswald { font-family:'Oswald',sans-serif; }
 
-  .track-card { background:var(--card); border-radius:24px; padding:22px; box-shadow:0 8px 0 rgba(0,0,0,.10); margin-bottom:20px; }
-  .track-title { display:flex; justify-content:space-between; font-weight:700; font-size:18px; margin-bottom:14px; }
-  /* extra top room so the crown above the leader is never clipped */
-  .lane { position:relative; height:88px; background:var(--road); border-radius:16px; margin-bottom:14px; overflow:hidden; }
-  .lane::before { content:''; position:absolute; top:58%; left:0; right:0; height:4px; background:repeating-linear-gradient(90deg,var(--line) 0 24px,transparent 24px 48px); transform:translateY(-50%); opacity:.9; }
-  .finish { position:absolute; right:6px; top:6px; bottom:6px; width:20px; border-radius:6px; background:repeating-conic-gradient(#fff 0 25%,#222 0 50%) 0 0/10px 10px; }
-  .runner { position:absolute; top:58%; transform:translate(-50%,-58%); font-size:42px; transition:left 1.6s cubic-bezier(.34,1.3,.5,1); filter:drop-shadow(0 4px 3px rgba(0,0,0,.35)); }
-  /* crown sits clearly ABOVE the runner inside the taller lane */
-  .runner.leader::after { content:'👑'; position:absolute; top:-30px; left:50%; transform:translateX(-50%); font-size:24px; animation:bob 1.2s ease-in-out infinite; filter:drop-shadow(0 2px 2px rgba(0,0,0,.4)); }
-  @keyframes bob { 50% { transform:translateX(-50%) translateY(-5px); } }
-  .lane-label { position:absolute; left:12px; top:6px; font-size:13px; font-weight:700; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.5); z-index:2; }
-  .lane-pts { position:absolute; left:12px; bottom:5px; font-size:12px; color:#ffffffcc; z-index:2; }
+  /* ---- HERO ---- */
+  .hero { position:relative; border-radius:18px; overflow:hidden; border:3px solid var(--navy); background:#bfe3f7; box-shadow:0 6px 0 rgba(0,0,0,.15); }
+  .heroart { position:relative; }
+  .hero img.art { display:block; width:100%; }
+  .namechip { position:absolute; transform:translate(-50%,-50%); font-family:'Oswald',sans-serif; font-weight:700; font-size:clamp(12px,2.1vw,22px); letter-spacing:1px; padding:2px 12px; border-radius:8px; background:rgba(255,255,255,.95); box-shadow:0 2px 4px rgba(0,0,0,.15); white-space:nowrap; }
+  .namechip.a { color:var(--blue); }
+  .namechip.p { color:var(--red); }
+  .days-live { position:absolute; left:86.4%; top:15.5%; width:12.6%; height:16.5%; background:#fff; border-radius:6px; display:flex; align-items:center; justify-content:center; font-family:'Oswald',sans-serif; font-weight:700; font-size:clamp(16px,3.2vw,34px); color:var(--navy); }
+  .yearpatch { position:absolute; left:83.6%; top:43%; width:13.8%; height:37%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; transform:rotate(-4deg); font-family:'Oswald',sans-serif; font-weight:600; color:#fff; background:#14151f; border-radius:6px; font-size:clamp(8px,1.5vw,16px); line-height:1.15; box-shadow:0 3px 6px rgba(0,0,0,.3); }
 
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:20px; }
-  .card { background:var(--card); border-radius:24px; padding:20px; box-shadow:0 8px 0 rgba(0,0,0,.10); }
-  .card h2 { font-size:19px; margin-bottom:14px; }
-  .duel-row { margin-bottom:12px; }
-  .duel-name { font-weight:600; font-size:14px; margin-bottom:4px; display:flex; justify-content:space-between; }
-  .duel-bar { height:26px; border-radius:999px; background:#eef1f6; overflow:hidden; }
-  .duel-fill { height:100%; border-radius:999px; min-width:8px; transition:width 1.4s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:10px; color:#fff; font-weight:700; font-size:13px; }
-  .stats { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .stat { background:#f6f7fb; border-radius:16px; padding:10px 12px; }
-  .stat .v { font-size:20px; font-weight:700; }
-  .stat .l { font-size:12px; color:#666; }
-  .athlete-h { display:flex; align-items:center; gap:8px; font-weight:700; margin-bottom:10px; }
-  .dot { width:14px; height:14px; border-radius:50%; }
-  .trophies { display:flex; flex-wrap:wrap; gap:10px; }
-  .trophy { background:#fff8e1; border:2px solid var(--gold); border-radius:16px; padding:8px 14px; font-size:14px; font-weight:600; }
-  .trophy small { display:block; font-weight:400; color:#8a6d00; font-size:11px; }
-  .empty { color:#999; font-size:14px; }
-  .feed { list-style:none; }
-  .feed li { display:flex; gap:10px; align-items:baseline; padding:8px 0; border-bottom:1px dashed #e5e7ee; font-size:14px; }
-  .feed .pts { margin-left:auto; font-weight:700; white-space:nowrap; }
-  .feed .skip { color:#c33; }
-  .banner { text-align:center; background:#fff3cd; border-radius:14px; padding:10px; font-size:14px; margin-bottom:16px; display:none; }
+  /* road + progress */
+  .road { background:#3e4048; padding:26px 3% 14px; position:relative; border-top:6px solid #55575f; }
+  .ticks { position:absolute; top:8px; left:3%; right:3%; height:8px; background:repeating-linear-gradient(90deg,#ffffff55 0 2px,transparent 2px 40px); }
+  .track { position:relative; height:26px; border-radius:999px; background:#23242b; border:2px solid #101116; }
+  .fill { position:absolute; left:0; height:11px; border-radius:999px; transition:width 1.5s cubic-bezier(.3,1,.4,1); }
+  .fill.a { top:0; background:linear-gradient(90deg,#5a8de0,var(--blue)); }
+  .fill.p { bottom:0; background:linear-gradient(90deg,#e2766c,var(--red)); }
+  .finish-cap { position:absolute; right:-2px; top:-8px; bottom:-8px; width:16px; border-radius:4px; background:repeating-conic-gradient(#fff 0 25%,#222 0 50%) 0 0/8px 8px; border:2px solid #101116; }
+  .marker { position:absolute; top:50%; transform:translate(-50%,-50%); text-align:center; transition:left 1.5s cubic-bezier(.3,1,.4,1); z-index:3; }
+  .marker img { width:54px; height:54px; border-radius:50%; border:3px solid #fff; box-shadow:0 3px 8px rgba(0,0,0,.5); display:block; }
+  .marker.a img { border-color:var(--blue); }
+  .marker.p img { border-color:var(--red); }
+  .mlabel { margin-top:42px; }
+  .mlabel .pct { font-family:'Oswald',sans-serif; font-weight:700; font-size:20px; color:#fff; }
+  .mlabel .pts { font-family:'Oswald',sans-serif; font-size:12px; color:#cfd1da; letter-spacing:1px; }
+  .roadspace { height:82px; }
+
+  /* ---- BLOCKS ---- */
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-top:16px; }
+  .block { background:var(--card); border:2px solid var(--navy); border-radius:14px; overflow:hidden; box-shadow:0 5px 0 rgba(0,0,0,.12); }
+  .block h2 { font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:2px; font-size:16px; background:var(--navy); color:#fff; text-align:center; padding:9px; }
+  .pad { padding:16px; }
+  .center { text-align:center; }
+  .muted { color:var(--muted); font-size:12px; }
+
+  /* weekly duel */
+  .weeklab { text-align:center; font-weight:800; font-size:14px; margin-bottom:12px; }
+  .weeklab span { font-weight:400; color:var(--muted); font-size:12px; }
+  .duelrow { display:flex; align-items:center; gap:10px; margin:8px 0; }
+  .duelrow .who { width:64px; font-family:'Oswald',sans-serif; font-weight:700; font-size:14px; }
+  .duelrow .bar { flex:1; height:20px; border-radius:4px; background:#e8e3d3; overflow:hidden; }
+  .duelrow .bar i { display:block; height:100%; transition:width 1.2s ease; }
+  .duelrow .pts { width:78px; text-align:right; font-weight:800; font-size:13px; white-space:nowrap; }
+  .vs { text-align:center; font-family:'Oswald',sans-serif; background:var(--navy); color:#fff; width:34px; height:34px; border-radius:50%; line-height:34px; margin:2px auto; font-size:13px; }
+  .endsin { border-top:1px dashed var(--line); margin-top:12px; padding-top:10px; text-align:center; font-size:13px; }
+  .endsin b { font-variant-numeric:tabular-nums; }
+
+  /* donuts */
+  .donuts { display:flex; justify-content:space-around; }
+  .donut { text-align:center; }
+  .donut .name { font-family:'Oswald',sans-serif; font-weight:700; font-size:14px; margin-bottom:2px; }
+  .donut .goal { font-size:11px; color:var(--muted); margin-bottom:8px; }
+  .ring { width:96px; height:96px; border-radius:50%; margin:0 auto; display:flex; align-items:center; justify-content:center; position:relative; }
+  .ring::after { content:''; position:absolute; inset:11px; border-radius:50%; background:var(--card); }
+  .ring b { position:relative; z-index:2; font-size:19px; }
+  .donut .frac { margin-top:8px; font-size:12px; font-weight:600; }
+
+  /* stats */
+  .statcols { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .statcol h3 { font-size:11px; letter-spacing:1px; color:var(--muted); text-align:center; margin-bottom:8px; }
+  .statvals { display:flex; justify-content:space-around; margin-bottom:6px; }
+  .statvals div { text-align:center; }
+  .statvals .n { font-family:'Oswald',sans-serif; font-weight:700; font-size:17px; }
+  .statvals .who { font-size:10px; font-weight:800; letter-spacing:1px; }
+  svg.spark { width:100%; height:52px; }
+
+  /* trophies */
+  .tro-row { display:flex; justify-content:space-around; margin-bottom:12px; }
+  .tro { text-align:center; width:56px; }
+  .tro .ic { font-size:30px; filter:drop-shadow(0 2px 2px rgba(0,0,0,.2)); }
+  .tro.locked .ic { filter:grayscale(1); opacity:.45; }
+  .tro .lb { font-size:10px; font-weight:700; margin-top:2px; letter-spacing:.5px; }
+  .tro .win { font-size:9px; color:var(--muted); }
+
+  /* streaks & badges */
+  .flames { display:flex; justify-content:space-around; margin-bottom:14px; }
+  .flame { display:flex; align-items:center; gap:8px; }
+  .flame .f { font-size:30px; }
+  .flame .d { font-family:'Oswald',sans-serif; font-weight:700; font-size:22px; line-height:1; }
+  .flame .l { font-size:10px; color:var(--muted); letter-spacing:1px; }
+  .badges { display:flex; justify-content:space-around; }
+  .badge { font-family:'Oswald',sans-serif; font-weight:700; font-size:11px; letter-spacing:.5px; background:var(--navy); color:var(--gold); border-radius:10px; padding:10px 12px; text-align:center; border:2px solid var(--gold); }
+  .badge.locked { background:#d8d3c4; color:#8a8676; border-color:#b5b0a0; }
+
+  .footerbar { margin-top:16px; background:var(--navy); color:#fff; border-radius:12px; text-align:center; padding:13px; font-family:'Oswald',sans-serif; letter-spacing:2px; font-size:15px; }
+  .banner { display:none; text-align:center; background:#fff3cd; border:1px solid #e6d38a; border-radius:10px; padding:9px; font-size:13px; margin-top:12px; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>🏁 ROAD TO HYROX BUDAPEST 🏁</h1>
-    <div class="countdown"><b id="days">—</b> days to race day &nbsp;·&nbsp; Oct 17</div>
-    <div class="updated" id="updated"></div>
-  </header>
 
-  <div class="banner" id="banner">⚠️ Showing demo data — database not reachable yet.</div>
-
-  <div class="track-card">
-    <div class="track-title"><span>THE RACE</span><span>🎯 finish = 6,600 pts</span></div>
-    <div id="lanes"></div>
+  <div class="hero">
+    <div class="heroart">
+      <img class="art" src="assets/hero.jpg" alt="HYROX race — Andrea vs Paw">
+      <span class="namechip a" style="left:19.9%; top:35.5%">ANDREA</span>
+      <span class="namechip p" style="left:65.3%; top:36%; padding:2px 22px">PAW</span>
+      <div class="days-live" id="days">—</div>
+      <span class="yearpatch"><b style="font-size:1.35em;letter-spacing:1px">FINISH</b>17 OCT 2026</span>
+    </div>
+    <div class="road">
+      <div class="ticks"></div>
+      <div class="track">
+        <i class="fill a" id="fill-a" style="width:0%"></i>
+        <i class="fill p" id="fill-p" style="width:0%"></i>
+        <div class="finish-cap"></div>
+      </div>
+      <div class="marker a" id="marker-a" style="left:5%">
+        <img src="assets/face-andrea.png" alt="Andrea">
+        <div class="mlabel"><div class="pct" id="pct-a">0%</div><div class="pts" id="pts-a">0 PTS</div></div>
+      </div>
+      <div class="marker p" id="marker-p" style="left:5%">
+        <img src="assets/face-paw.png" alt="Paw">
+        <div class="mlabel"><div class="pct" id="pct-p">0%</div><div class="pts" id="pts-p">0 PTS</div></div>
+      </div>
+      <div class="roadspace"></div>
+    </div>
   </div>
+
+  <div class="banner" id="banner">⚠️ Showing demo data — database not reachable.</div>
 
   <div class="grid">
-    <div class="card">
-      <h2>⚔️ This week's duel</h2>
-      <div id="duel"></div>
+    <div class="block">
+      <h2>WEEKLY DUEL</h2>
+      <div class="pad">
+        <div class="weeklab" id="weeklab">WEEK — <span></span></div>
+        <div class="duelrow"><span class="who" style="color:var(--blue)">ANDREA</span><span class="bar"><i id="duel-a" style="background:var(--blue);width:0%"></i></span><span class="pts" id="duelpts-a">0 PTS</span></div>
+        <div class="vs">VS</div>
+        <div class="duelrow"><span class="who" style="color:var(--red)">PAW</span><span class="bar"><i id="duel-p" style="background:var(--red);width:0%"></i></span><span class="pts" id="duelpts-p">0 PTS</span></div>
+        <div class="endsin">🕐 ENDS IN: <b id="endsin">—</b></div>
+      </div>
     </div>
-    <div class="card"><div id="stats-0"></div></div>
-    <div class="card"><div id="stats-1"></div></div>
-    <div class="card">
-      <h2>🏆 Trophy cabinet</h2>
-      <div class="trophies" id="trophies"><span class="empty">Nothing won yet — first weekly medal awarded Sunday 23:00!</span></div>
+
+    <div class="block">
+      <h2>WEEKLY GOAL</h2>
+      <div class="pad donuts">
+        <div class="donut">
+          <div class="name" style="color:var(--blue)">ANDREA</div>
+          <div class="goal">Goal: 450 PTS</div>
+          <div class="ring" id="ring-a"><b id="ringpct-a">0%</b></div>
+          <div class="frac" id="frac-a">0 / 450</div>
+        </div>
+        <div class="donut">
+          <div class="name" style="color:var(--red)">PAW</div>
+          <div class="goal">Goal: 450 PTS</div>
+          <div class="ring" id="ring-p"><b id="ringpct-p">0%</b></div>
+          <div class="frac" id="frac-p">0 / 450</div>
+        </div>
+      </div>
     </div>
-    <div class="card" style="grid-column:1/-1">
-      <h2>📜 Latest sessions</h2>
-      <ul class="feed" id="feed"></ul>
+
+    <div class="block">
+      <h2>LAST UPDATE</h2>
+      <div class="pad center">
+        <div class="oswald" style="font-size:22px;font-weight:600;margin:10px 0" id="lastupdate">—</div>
+        <div class="muted">⚡ Updated 2x daily (2 PM & 11 PM)</div>
+        <div class="muted" style="margin-top:14px">Race starts <b>Mon 6 July</b> — sessions before that don't score.</div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h2>STATS OVERVIEW</h2>
+      <div class="pad statcols">
+        <div class="statcol">
+          <h3>KM RUN THIS MONTH</h3>
+          <div class="statvals">
+            <div><div class="who" style="color:var(--blue)">ANDREA</div><div class="n" id="km-a">0 km</div></div>
+            <div><div class="who" style="color:var(--red)">PAW</div><div class="n" id="km-p">0 km</div></div>
+          </div>
+          <svg class="spark" id="spark-km" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="statcol">
+          <h3>KG LIFTED THIS MONTH</h3>
+          <div class="statvals">
+            <div><div class="who" style="color:var(--blue)">ANDREA</div><div class="n" id="kg-a">0 kg</div></div>
+            <div><div class="who" style="color:var(--red)">PAW</div><div class="n" id="kg-p">0 kg</div></div>
+          </div>
+          <svg class="spark" id="spark-kg" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h2>TROPHY CABINET</h2>
+      <div class="pad">
+        <div class="tro-row" id="weekly-tros"></div>
+        <div class="tro-row" id="monthly-tros"></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h2>STREAKS &amp; BADGES</h2>
+      <div class="pad">
+        <div class="flames">
+          <div class="flame"><span class="f">🔵</span><div><div class="d" id="streak-a">0</div><div class="l">ANDREA · SESSIONS</div></div></div>
+          <div class="flame"><span class="f">🔥</span><div><div class="d" id="streak-p">0</div><div class="l">PAW · SESSIONS</div></div></div>
+        </div>
+        <div class="badges" id="badges"></div>
+      </div>
     </div>
   </div>
+
+  <div class="footerbar">🏆 TRAIN HARD. COMPETE FAIR. FINISH STRONG. 🤘</div>
 </div>
 
 <script>
 const SUPABASE_URL = 'https://kdeqfsnteprdxeboirus.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_nsDrpuvi-sZQCNxwftidKg_-jzugMps'; // publishable: safe in public code, read-only via RLS
-const POINTS_GOAL = 6600; // Jul 6 -> Oct 17 at ~450 pts/week
+const POINTS_GOAL = 6600;   // Jul 6 -> Oct 17 at ~450 pts/week
+const WEEKLY_GOAL = 450;
 const RACE_DAY = new Date('2026-10-17T09:00:00');
+const A = 'andrea', P = 'paul';
 
 document.getElementById('days').textContent = Math.max(0, Math.ceil((RACE_DAY - new Date()) / 864e5));
-
-const DEMO = {
-  athletes: [
-    { id:'andrea', name:'Andrea', emoji:'🏃‍♂️', color:'#e63946' },
-    { id:'paul', name:'Paw', emoji:'🏃', color:'#457b9d' },
-  ],
-  race_state: [
-    { athlete_id:'andrea', total_points:0, week_points:0, streak:0, total_km:0, total_kg:0, sessions_completed:0, sessions_skipped:0 },
-    { athlete_id:'paul', total_points:0, week_points:0, streak:0, total_km:0, total_kg:0, sessions_completed:0, sessions_skipped:0 },
-  ],
-  trophies: [],
-  workouts: [],
-};
 
 async function q(table, params) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
@@ -119,80 +237,147 @@ async function q(table, params) {
   return r.json();
 }
 
-async function load() {
-  try {
-    const [athletes, state, trophies, workouts] = await Promise.all([
-      q('athletes', 'select=id,name,emoji,color&order=id'),
-      q('race_state', 'select=*'),
-      q('trophies', 'select=*&order=awarded_at.desc'),
-      q('workouts', 'select=athlete_id,date,planned,result_raw,status,points,km&status=neq.pending&order=date.desc&limit=12'),
-    ]);
-    if (!athletes.length) throw new Error('empty');
-    render({ athletes, race_state: state, trophies, workouts });
-  } catch {
-    document.getElementById('banner').style.display = 'block';
-    render(DEMO);
-  }
+function isoWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return Math.ceil(((t - y0) / 864e5 + 1) / 7);
 }
+const fmtPts = (n) => Math.round(n).toLocaleString('en-US') + ' PTS';
 
-function render(d) {
-  const st = Object.fromEntries(d.race_state.map(s => [s.athlete_id, s]));
-  // crown only when someone actually leads (not at a 0-0 start)
-  const ranked = [...d.athletes].sort((a,b) => (st[b.id]?.total_points||0) - (st[a.id]?.total_points||0));
-  const leaderId = (st[ranked[0].id]?.total_points||0) > (st[ranked[1]?.id]?.total_points||0) ? ranked[0].id : null;
+function render(state, trophies, workouts) {
+  const st = { [A]: state.find(s => s.athlete_id === A) || {}, [P]: state.find(s => s.athlete_id === P) || {} };
+  const w = { [A]: workouts.filter(x => x.athlete_id === A), [P]: workouts.filter(x => x.athlete_id === P) };
 
-  // race lanes
-  document.getElementById('lanes').innerHTML = d.athletes.map(a => {
-    const s = st[a.id] || {};
-    const pct = Math.min((s.total_points||0) / POINTS_GOAL, 1);
-    return `<div class="lane">
-      <span class="lane-label" style="color:${a.color};-webkit-text-stroke:.5px #fff">${a.name}</span>
-      <span class="lane-pts">${Math.round(s.total_points||0)} pts</span>
-      <div class="finish"></div>
-      <span class="runner ${a.id===leaderId?'leader':''}" style="left:${4 + pct*88}%">${a.emoji}</span>
-    </div>`;
-  }).join('');
+  // hero track
+  for (const [id, k] of [[A,'a'],[P,'p']]) {
+    const pts = st[id].total_points || 0;
+    const pct = Math.min(pts / POINTS_GOAL, 1);
+    document.getElementById('fill-'+k).style.width = (pct*100).toFixed(1)+'%';
+    document.getElementById('marker-'+k).style.left = (5 + pct*89) + '%';
+    document.getElementById('pct-'+k).textContent = Math.round(pct*100)+'%';
+    document.getElementById('pts-'+k).textContent = fmtPts(pts);
+  }
 
   // weekly duel
-  const maxWeek = Math.max(...d.athletes.map(a => st[a.id]?.week_points||0), 1);
-  document.getElementById('duel').innerHTML = d.athletes.map(a => {
-    const w = st[a.id]?.week_points || 0;
-    return `<div class="duel-row">
-      <div class="duel-name"><span>${a.emoji} ${a.name}</span><span>${Math.round(w)} pts</span></div>
-      <div class="duel-bar"><div class="duel-fill" style="width:${(w/maxWeek)*100}%;background:${a.color}"></div></div>
-    </div>`;
-  }).join('') + `<p style="font-size:13px;color:#888;margin-top:6px">Weekly medal decided Sunday 23:00 🕚 · race started Mon 6 Jul</p>`;
+  const now = new Date();
+  const wk = isoWeek(now);
+  const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay()+6)%7));
+  const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+  const fmtD = d => d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}).toUpperCase();
+  document.getElementById('weeklab').innerHTML = `WEEK ${wk} <span>(${fmtD(mon)} – ${fmtD(sun)})</span>`;
+  const wp = { [A]: st[A].week_points||0, [P]: st[P].week_points||0 };
+  const wmax = Math.max(wp[A], wp[P], 1);
+  document.getElementById('duel-a').style.width = (wp[A]/wmax*100)+'%';
+  document.getElementById('duel-p').style.width = (wp[P]/wmax*100)+'%';
+  document.getElementById('duelpts-a').textContent = fmtPts(wp[A]);
+  document.getElementById('duelpts-p').textContent = fmtPts(wp[P]);
 
-  // stat cards
-  d.athletes.forEach((a, i) => {
-    const s = st[a.id] || {};
-    document.getElementById(`stats-${i}`).innerHTML = `
-      <div class="athlete-h"><span class="dot" style="background:${a.color}"></span>${a.emoji} ${a.name}</div>
-      <div class="stats">
-        <div class="stat"><div class="v">🔥 ${s.streak||0}</div><div class="l">session streak</div></div>
-        <div class="stat"><div class="v">${s.total_km||0}</div><div class="l">km run</div></div>
-        <div class="stat"><div class="v">${((s.total_kg||0)/1000).toFixed(1)}t</div><div class="l">lifted</div></div>
-        <div class="stat"><div class="v">${s.sessions_completed||0}<span style="color:#c33;font-size:14px"> / ${s.sessions_skipped||0}💀</span></div><div class="l">done / skipped</div></div>
-      </div>`;
-  });
+  // countdown to Sunday 23:00 (weekly medal decision)
+  const end = new Date(mon); end.setDate(mon.getDate()+6); end.setHours(23,0,0,0);
+  const tick = () => {
+    let ms = end - new Date();
+    if (ms < 0) ms = 0;
+    const d = Math.floor(ms/864e5), h = Math.floor(ms%864e5/36e5), m = Math.floor(ms%36e5/6e4), s = Math.floor(ms%6e4/1e3);
+    document.getElementById('endsin').textContent = `${d} DAY${d===1?'':'S'} ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  };
+  tick(); setInterval(tick, 1000);
 
-  // trophies
-  if (d.trophies.length) {
-    const names = Object.fromEntries(d.athletes.map(a => [a.id, a.name]));
-    document.getElementById('trophies').innerHTML = d.trophies.map(t =>
-      `<div class="trophy">${t.emoji} ${t.label}<small>${names[t.athlete_id]}${t.period ? ' · ' + t.period : ''}</small></div>`).join('');
+  // weekly goal donuts
+  for (const [id,k,color] of [[A,'a','var(--blue)'],[P,'p','var(--red)']]) {
+    const pct = Math.min((wp[id]/WEEKLY_GOAL)*100, 100);
+    document.getElementById('ring-'+k).style.background = `conic-gradient(${color} ${pct*3.6}deg, #e3ddcc 0deg)`;
+    document.getElementById('ringpct-'+k).textContent = Math.round(pct)+'%';
+    document.getElementById('frac-'+k).textContent = `${Math.round(wp[id])} / ${WEEKLY_GOAL}`;
   }
 
-  // feed
-  const names = Object.fromEntries(d.athletes.map(a => [a.id, a]));
-  document.getElementById('feed').innerHTML = d.workouts.map(w => {
-    const a = names[w.athlete_id];
-    const desc = w.status === 'skipped' ? `<span class="skip">skipped — ${w.planned}</span>` : (w.result_raw || w.planned || '').slice(0, 90);
-    return `<li><span>${a.emoji}</span><span><b>${a.name}</b> · ${w.date} · ${desc}</span>
-      <span class="pts">${w.status==='skipped' ? '💀 0' : '+' + Math.round(w.points)} pts</span></li>`;
-  }).join('') || '<li class="empty">No sessions synced yet — race starts Mon 6 Jul.</li>';
+  // last update
+  const upd = [st[A].updated_at, st[P].updated_at].filter(Boolean).sort().pop();
+  if (upd) {
+    const u = new Date(upd);
+    const today = u.toDateString() === new Date().toDateString();
+    document.getElementById('lastupdate').textContent =
+      (today ? 'Today, ' : u.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ', ') +
+      u.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  }
 
-  document.getElementById('updated').textContent = 'Official standings update daily at 14:00 & 23:00';
+  // stats: this month + weekly sparklines
+  const moKey = new Date().toISOString().slice(0,7);
+  for (const [id,k] of [[A,'a'],[P,'p']]) {
+    const mine = w[id].filter(x => x.date.startsWith(moKey));
+    document.getElementById('km-'+k).textContent = Math.round(mine.reduce((s,x)=>s+x.km,0)) + ' km';
+    document.getElementById('kg-'+k).textContent = Math.round(mine.reduce((s,x)=>s+x.kg_volume,0)).toLocaleString('en-US') + ' kg';
+  }
+  drawSpark('spark-km', w, x => x.km);
+  drawSpark('spark-kg', w, x => x.kg_volume);
+
+  // trophy cabinet — last 4 week slots + monthly belts
+  const wtro = document.getElementById('weekly-tros');
+  wtro.innerHTML = '';
+  const RACE_WEEK1 = 28; // week of Mon 6 Jul, first scoring week
+  const startWk = Math.max(RACE_WEEK1, wk - 2);
+  for (let wknum = startWk; wknum < startWk + 4; wknum++) {
+    const t = trophies.find(t => t.kind === 'weekly' && t.period && t.period.endsWith('W'+String(wknum).padStart(2,'0')));
+    if (t) wtro.innerHTML += `<div class="tro"><div class="ic">${t.emoji||'🥇'}</div><div class="lb">W${wknum}</div><div class="win">${t.athlete_id===A?'Andrea':'Paw'}</div></div>`;
+    else if (wknum === wk) wtro.innerHTML += `<div class="tro locked"><div class="ic">⏳</div><div class="lb">W${wknum}</div><div class="win">in play</div></div>`;
+    else if (wknum < wk) wtro.innerHTML += `<div class="tro locked"><div class="ic">🥇</div><div class="lb">W${wknum}</div><div class="win">—</div></div>`;
+    else wtro.innerHTML += `<div class="tro locked"><div class="ic">🔒</div><div class="lb">W${wknum}</div><div class="win">—</div></div>`;
+  }
+  const mtro = document.getElementById('monthly-tros');
+  mtro.innerHTML = '';
+  for (const [num, label] of [['07','JULY'],['08','AUGUST'],['09','SEPTEMBER'],['10','OCTOBER']]) {
+    const t = trophies.find(t => t.kind === 'monthly' && t.period === '2026-'+num);
+    mtro.innerHTML += t
+      ? `<div class="tro"><div class="ic">🏆</div><div class="lb">${label}</div><div class="win">${t.athlete_id===A?'Andrea':'Paw'}</div></div>`
+      : `<div class="tro locked"><div class="ic">🔒</div><div class="lb">${label}</div><div class="win">—</div></div>`;
+  }
+
+  // streaks & badges
+  document.getElementById('streak-a').textContent = st[A].streak || 0;
+  document.getElementById('streak-p').textContent = st[P].streak || 0;
+  const badges = [];
+  for (const [id, nm] of [[A,'ANDREA'],[P,'PAW']]) {
+    if ((st[id].total_km||0) >= 100) badges.push(`<div class="badge">100KM CLUB<br>${nm}</div>`);
+    if ((st[id].total_kg||0) >= 10000) badges.push(`<div class="badge">10-TON LIFTER<br>${nm}</div>`);
+  }
+  if (!badges.length) badges.push('<div class="badge locked">100KM CLUB<br>🔒</div>','<div class="badge locked">10-TON LIFTER<br>🔒</div>');
+  badges.push('<div class="badge locked">??? <br>🔒</div>');
+  document.getElementById('badges').innerHTML = badges.join('');
+}
+
+function drawSpark(elId, w, metric) {
+  // weekly totals since race start, one line per athlete
+  const start = new Date('2026-07-06');
+  const weeks = Math.max(2, Math.min(14, Math.ceil((new Date() - start) / (7*864e5)) + 1));
+  const series = { andrea: [], paul: [] };
+  for (const id of [A, P]) {
+    for (let i = 0; i < weeks; i++) {
+      const w0 = new Date(start); w0.setDate(start.getDate() + i*7);
+      const w1 = new Date(w0); w1.setDate(w0.getDate() + 7);
+      series[id].push(w[id].filter(x => { const d = new Date(x.date); return d >= w0 && d < w1; }).reduce((s,x) => s + metric(x), 0));
+    }
+  }
+  const max = Math.max(...series[A], ...series[P], 1);
+  const line = (vals, color) => {
+    const pts = vals.map((v,i) => `${(i/(weeks-1))*96+2},${38-(v/max)*34}`).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round"/>` +
+      vals.map((v,i) => `<circle cx="${(i/(weeks-1))*96+2}" cy="${38-(v/max)*34}" r="2" fill="${color}"/>`).join('');
+  };
+  document.getElementById(elId).innerHTML = line(series[P], '#d63b2f') + line(series[A], '#1d55c4');
+}
+
+async function load() {
+  try {
+    const [state, trophies, workouts] = await Promise.all([
+      q('race_state', 'select=*'),
+      q('trophies', 'select=*&order=awarded_at.desc'),
+      q('workouts', 'select=athlete_id,date,status,km,kg_volume,points&status=neq.pending&order=date.asc'),
+    ]);
+    render(state, trophies, workouts);
+  } catch (e) {
+    document.getElementById('banner').style.display = 'block';
+    render([{athlete_id:A},{athlete_id:P}], [], []);
+  }
 }
 load();
 </script>
