@@ -18,6 +18,7 @@ const run = promisify(execFile);
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const RACE_DAY = new Date('2026-10-17');
+const RACE_START = new Date(Date.UTC(2026, 6, 6)); // the duel officially starts Mon 6 Jul — earlier sessions don't score
 
 // ---- scoring config: argue about fairness here ----
 const SCORE = {
@@ -103,7 +104,7 @@ function isoWeek(d) {
 
 // Two sheet formats are supported, detected from the header row:
 //  - "coach log" (Andrea): Date | Day | Wk | Session | My result | RPE | Notes | Weight AM
-//  - "checkbox plan" (Paul): Done | Week | Phase | # | Date | Session | Location | What to do | Coaching cue
+//  - "checkbox plan" (Paw): Done | Week | Phase | # | Date | Session | Location | What to do | Coaching cue
 function normalizeRow(r, format, today) {
   if (format === 'checkbox') {
     const date = parseSheetDate(r[4]);
@@ -154,7 +155,7 @@ async function syncAthlete(athlete, today) {
   const workouts = [];
   for (const r of rows.slice(header + 1)) {
     const n = normalizeRow(r, format, today);
-    if (!n || n.date > today) continue;
+    if (!n || n.date > today || n.date < RACE_START) continue;
     const { date, planned, result, rpeRaw, notes, logged, skipped } = n;
     // a rest day is one whose plan STARTS with recovery/rest — "Rest 90s" or "jog recovery"
     // inside an interval description must not turn a real workout into a rest day
@@ -198,7 +199,7 @@ async function syncAthlete(athlete, today) {
 
 function computeState(workouts) {
   // streak: consecutive planned sessions completed (not calendar days — plans differ:
-  // Andrea trains 7 days/week, Paul 5), counting back from the most recent resolved session
+  // Andrea trains 7 days/week, Paw 5), counting back from the most recent resolved session
   const resolved = workouts.filter((w) => w.status !== 'pending').sort((a, b) => a.date.localeCompare(b.date));
   let streak = 0;
   for (let i = resolved.length - 1; i >= 0; i--) {
