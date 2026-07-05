@@ -79,7 +79,7 @@ const iso = (d) => d.toISOString().slice(0, 10);
 // -- regex fallback extraction of km and kg-volume from free text --
 function regexExtract(text) {
   let km = 0, kg = 0;
-  for (const m of text.matchAll(/(\d+(?:[.,]\d+)?)\s*km\b/gi)) km += parseFloat(m[1].replace(',', '.'));
+  for (const m of text.matchAll(/(\d+(?:[.,]\d+)?)\s*km\b(?!\/)/gi)) km += parseFloat(m[1].replace(',', '.')); // (?!\/) skips "km/h" speeds
   for (const m of text.matchAll(/(\d{3,4})\s*m\b/gi)) km += parseInt(m[1]) / 1000; // "2305m", "800m"
   for (const m of text.matchAll(/(\d+(?:[.,]\d+)?)\s*kg\b/gi)) kg += parseFloat(m[1].replace(',', '.'));
   return { km: Math.round(km * 100) / 100, kg_volume: kg, parsed_by: 'regex' };
@@ -156,11 +156,15 @@ async function syncAthlete(athlete, today) {
     const n = normalizeRow(r, format, today);
     if (!n || n.date > today) continue;
     const { date, planned, result, rpeRaw, notes, logged, skipped } = n;
-    const isRest = /recovery|rest/i.test(planned);
+    // a rest day is one whose plan STARTS with recovery/rest — "Rest 90s" or "jog recovery"
+    // inside an interval description must not turn a real workout into a rest day
+    const isRest = /^\s*(recovery|rest)\b/i.test(planned);
 
     const id = `${athlete.id}:${iso(date)}`;
     const prev = existing[id];
-    const unchanged = prev && prev.result_raw === result && prev.notes === notes && prev.status !== 'pending';
+    // regex-parsed rows are re-parsed every run (cheap, and they upgrade themselves to
+    // claude parses once the token is configured); claude-parsed rows are cached forever
+    const unchanged = prev && prev.result_raw === result && prev.notes === notes && prev.status !== 'pending' && prev.parsed_by === 'claude';
 
     let parsed = { km: 0, kg_volume: 0, parsed_by: 'regex' };
     let status = skipped ? 'skipped' : logged ? 'completed' : 'pending';
@@ -173,7 +177,8 @@ async function syncAthlete(athlete, today) {
         if (parsed.status) status = parsed.status;
       } catch { parsed = regexExtract(n.parseText); }
     }
-    if (isRest && status === 'completed') status = 'rest';
+    // training for real on a planned recovery day still counts as a full session
+    if (isRest && status === 'completed' && parsed.km < 1 && !parsed.kg_volume) status = 'rest';
 
     const rpe = parseFloat(String(rpeRaw).replace(',', '.')) || parsed.rpe || null;
     let points = 0;
