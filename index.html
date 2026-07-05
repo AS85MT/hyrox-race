@@ -22,12 +22,14 @@
 
   .track-card { background:var(--card); border-radius:24px; padding:22px; box-shadow:0 8px 0 rgba(0,0,0,.10); margin-bottom:20px; }
   .track-title { display:flex; justify-content:space-between; font-weight:700; font-size:18px; margin-bottom:14px; }
-  .lane { position:relative; height:74px; background:var(--road); border-radius:16px; margin-bottom:14px; overflow:hidden; }
-  .lane::before { content:''; position:absolute; top:50%; left:0; right:0; height:4px; background:repeating-linear-gradient(90deg,var(--line) 0 24px,transparent 24px 48px); transform:translateY(-50%); opacity:.9; }
+  /* extra top room so the crown above the leader is never clipped */
+  .lane { position:relative; height:88px; background:var(--road); border-radius:16px; margin-bottom:14px; overflow:hidden; }
+  .lane::before { content:''; position:absolute; top:58%; left:0; right:0; height:4px; background:repeating-linear-gradient(90deg,var(--line) 0 24px,transparent 24px 48px); transform:translateY(-50%); opacity:.9; }
   .finish { position:absolute; right:6px; top:6px; bottom:6px; width:20px; border-radius:6px; background:repeating-conic-gradient(#fff 0 25%,#222 0 50%) 0 0/10px 10px; }
-  .runner { position:absolute; top:50%; transform:translate(-50%,-58%); font-size:42px; transition:left 1.6s cubic-bezier(.34,1.3,.5,1); filter:drop-shadow(0 4px 3px rgba(0,0,0,.35)); }
-  .runner.leader::after { content:'👑'; position:absolute; top:-20px; left:50%; transform:translateX(-50%); font-size:18px; animation:bob 1.2s ease-in-out infinite; }
-  @keyframes bob { 50% { transform:translateX(-50%) translateY(-4px); } }
+  .runner { position:absolute; top:58%; transform:translate(-50%,-58%); font-size:42px; transition:left 1.6s cubic-bezier(.34,1.3,.5,1); filter:drop-shadow(0 4px 3px rgba(0,0,0,.35)); }
+  /* crown sits clearly ABOVE the runner inside the taller lane */
+  .runner.leader::after { content:'👑'; position:absolute; top:-30px; left:50%; transform:translateX(-50%); font-size:24px; animation:bob 1.2s ease-in-out infinite; filter:drop-shadow(0 2px 2px rgba(0,0,0,.4)); }
+  @keyframes bob { 50% { transform:translateX(-50%) translateY(-5px); } }
   .lane-label { position:absolute; left:12px; top:6px; font-size:13px; font-weight:700; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.5); z-index:2; }
   .lane-pts { position:absolute; left:12px; bottom:5px; font-size:12px; color:#ffffffcc; z-index:2; }
 
@@ -66,7 +68,7 @@
   <div class="banner" id="banner">⚠️ Showing demo data — database not reachable yet.</div>
 
   <div class="track-card">
-    <div class="track-title"><span>THE RACE</span><span>🎯 finish = 7,700 pts</span></div>
+    <div class="track-title"><span>THE RACE</span><span>🎯 finish = 6,600 pts</span></div>
     <div id="lanes"></div>
   </div>
 
@@ -91,7 +93,7 @@
 <script>
 const SUPABASE_URL = 'https://kdeqfsnteprdxeboirus.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_nsDrpuvi-sZQCNxwftidKg_-jzugMps'; // publishable: safe in public code, read-only via RLS
-const POINTS_GOAL = 7700; // ~17 weeks x ~450 pts/week
+const POINTS_GOAL = 6600; // Jul 6 -> Oct 17 at ~450 pts/week
 const RACE_DAY = new Date('2026-10-17T09:00:00');
 
 document.getElementById('days').textContent = Math.max(0, Math.ceil((RACE_DAY - new Date()) / 864e5));
@@ -99,20 +101,14 @@ document.getElementById('days').textContent = Math.max(0, Math.ceil((RACE_DAY - 
 const DEMO = {
   athletes: [
     { id:'andrea', name:'Andrea', emoji:'🏃‍♂️', color:'#e63946' },
-    { id:'paul', name:'Paul', emoji:'🏃', color:'#457b9d' },
+    { id:'paul', name:'Paw', emoji:'🏃', color:'#457b9d' },
   ],
   race_state: [
-    { athlete_id:'andrea', total_points:842, week_points:315, streak:4, total_km:16.4, total_kg:1830, sessions_completed:7, sessions_skipped:6 },
-    { athlete_id:'paul', total_points:760, week_points:280, streak:3, total_km:21.0, total_kg:900, sessions_completed:6, sessions_skipped:2 },
+    { athlete_id:'andrea', total_points:0, week_points:0, streak:0, total_km:0, total_kg:0, sessions_completed:0, sessions_skipped:0 },
+    { athlete_id:'paul', total_points:0, week_points:0, streak:0, total_km:0, total_kg:0, sessions_completed:0, sessions_skipped:0 },
   ],
-  trophies: [
-    { athlete_id:'andrea', kind:'weekly', label:'Week 27 champion', emoji:'🥇', period:'2026-W27' },
-  ],
-  workouts: [
-    { athlete_id:'andrea', date:'2026-07-05', planned:'Recovery run', result_raw:'Progression Run 30:07, 4.53 km', status:'completed', points:98, km:4.53 },
-    { athlete_id:'paul', date:'2026-07-05', planned:'Long run', result_raw:'10k easy', status:'completed', points:150, km:10 },
-    { athlete_id:'andrea', date:'2026-07-04', planned:'Compromised run', result_raw:'', status:'skipped', points:0, km:0 },
-  ],
+  trophies: [],
+  workouts: [],
 };
 
 async function q(table, params) {
@@ -141,7 +137,9 @@ async function load() {
 
 function render(d) {
   const st = Object.fromEntries(d.race_state.map(s => [s.athlete_id, s]));
-  const leaderId = [...d.athletes].sort((a,b) => (st[b.id]?.total_points||0) - (st[a.id]?.total_points||0))[0].id;
+  // crown only when someone actually leads (not at a 0-0 start)
+  const ranked = [...d.athletes].sort((a,b) => (st[b.id]?.total_points||0) - (st[a.id]?.total_points||0));
+  const leaderId = (st[ranked[0].id]?.total_points||0) > (st[ranked[1]?.id]?.total_points||0) ? ranked[0].id : null;
 
   // race lanes
   document.getElementById('lanes').innerHTML = d.athletes.map(a => {
@@ -163,7 +161,7 @@ function render(d) {
       <div class="duel-name"><span>${a.emoji} ${a.name}</span><span>${Math.round(w)} pts</span></div>
       <div class="duel-bar"><div class="duel-fill" style="width:${(w/maxWeek)*100}%;background:${a.color}"></div></div>
     </div>`;
-  }).join('') + `<p style="font-size:13px;color:#888;margin-top:6px">Weekly medal decided Sunday 23:00 🕚</p>`;
+  }).join('') + `<p style="font-size:13px;color:#888;margin-top:6px">Weekly medal decided Sunday 23:00 🕚 · race started Mon 6 Jul</p>`;
 
   // stat cards
   d.athletes.forEach((a, i) => {
@@ -171,7 +169,7 @@ function render(d) {
     document.getElementById(`stats-${i}`).innerHTML = `
       <div class="athlete-h"><span class="dot" style="background:${a.color}"></span>${a.emoji} ${a.name}</div>
       <div class="stats">
-        <div class="stat"><div class="v">🔥 ${s.streak||0}</div><div class="l">day streak</div></div>
+        <div class="stat"><div class="v">🔥 ${s.streak||0}</div><div class="l">session streak</div></div>
         <div class="stat"><div class="v">${s.total_km||0}</div><div class="l">km run</div></div>
         <div class="stat"><div class="v">${((s.total_kg||0)/1000).toFixed(1)}t</div><div class="l">lifted</div></div>
         <div class="stat"><div class="v">${s.sessions_completed||0}<span style="color:#c33;font-size:14px"> / ${s.sessions_skipped||0}💀</span></div><div class="l">done / skipped</div></div>
@@ -192,7 +190,7 @@ function render(d) {
     const desc = w.status === 'skipped' ? `<span class="skip">skipped — ${w.planned}</span>` : (w.result_raw || w.planned || '').slice(0, 90);
     return `<li><span>${a.emoji}</span><span><b>${a.name}</b> · ${w.date} · ${desc}</span>
       <span class="pts">${w.status==='skipped' ? '💀 0' : '+' + Math.round(w.points)} pts</span></li>`;
-  }).join('') || '<li class="empty">No sessions synced yet.</li>';
+  }).join('') || '<li class="empty">No sessions synced yet — race starts Mon 6 Jul.</li>';
 
   document.getElementById('updated').textContent = 'Official standings update daily at 14:00 & 23:00';
 }
