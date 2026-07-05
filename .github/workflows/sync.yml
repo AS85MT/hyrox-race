@@ -1,0 +1,22 @@
+name: Race sync
+on:
+  schedule:
+    # 14:00 and 23:00 Europe/Rome (CEST = UTC+2). Adjust to 13:00/22:00 UTC after DST ends in late Oct — race is over by then anyway.
+    - cron: '0 12 * * *'
+    - cron: '0 21 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: node sync/sync.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
