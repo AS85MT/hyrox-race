@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Road to HYROX Budapest 🏁</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sky1:#7ec8f7; --sky2:#c9ecff; --grass:#7ccf6e; --grass2:#5cb84f;
+    --road:#5a5a6e; --line:#ffe66d; --card:#ffffff; --ink:#2b2d42;
+    --a-color:#e63946; --p-color:#457b9d; --gold:#ffb703;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Fredoka',sans-serif; color:var(--ink); background:linear-gradient(var(--sky1),var(--sky2) 55%,var(--grass) 55.2%,var(--grass2)); min-height:100vh; }
+  .wrap { max-width:980px; margin:0 auto; padding:24px 16px 60px; }
+  header { text-align:center; margin-bottom:18px; }
+  h1 { font-size:clamp(28px,5vw,44px); font-weight:700; text-shadow:0 3px 0 rgba(0,0,0,.12); color:#fff; letter-spacing:1px; }
+  .countdown { display:inline-block; margin-top:8px; background:var(--ink); color:#fff; padding:8px 20px; border-radius:999px; font-size:18px; font-weight:600; box-shadow:0 4px 0 rgba(0,0,0,.2); }
+  .countdown b { color:var(--gold); font-size:24px; }
+  .updated { margin-top:8px; font-size:13px; color:#2b2d42aa; }
+
+  .track-card { background:var(--card); border-radius:24px; padding:22px; box-shadow:0 8px 0 rgba(0,0,0,.10); margin-bottom:20px; }
+  .track-title { display:flex; justify-content:space-between; font-weight:700; font-size:18px; margin-bottom:14px; }
+  .lane { position:relative; height:74px; background:var(--road); border-radius:16px; margin-bottom:14px; overflow:hidden; }
+  .lane::before { content:''; position:absolute; top:50%; left:0; right:0; height:4px; background:repeating-linear-gradient(90deg,var(--line) 0 24px,transparent 24px 48px); transform:translateY(-50%); opacity:.9; }
+  .finish { position:absolute; right:6px; top:6px; bottom:6px; width:20px; border-radius:6px; background:repeating-conic-gradient(#fff 0 25%,#222 0 50%) 0 0/10px 10px; }
+  .runner { position:absolute; top:50%; transform:translate(-50%,-58%); font-size:42px; transition:left 1.6s cubic-bezier(.34,1.3,.5,1); filter:drop-shadow(0 4px 3px rgba(0,0,0,.35)); }
+  .runner.leader::after { content:'👑'; position:absolute; top:-20px; left:50%; transform:translateX(-50%); font-size:18px; animation:bob 1.2s ease-in-out infinite; }
+  @keyframes bob { 50% { transform:translateX(-50%) translateY(-4px); } }
+  .lane-label { position:absolute; left:12px; top:6px; font-size:13px; font-weight:700; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.5); z-index:2; }
+  .lane-pts { position:absolute; left:12px; bottom:5px; font-size:12px; color:#ffffffcc; z-index:2; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:20px; }
+  .card { background:var(--card); border-radius:24px; padding:20px; box-shadow:0 8px 0 rgba(0,0,0,.10); }
+  .card h2 { font-size:19px; margin-bottom:14px; }
+  .duel-row { margin-bottom:12px; }
+  .duel-name { font-weight:600; font-size:14px; margin-bottom:4px; display:flex; justify-content:space-between; }
+  .duel-bar { height:26px; border-radius:999px; background:#eef1f6; overflow:hidden; }
+  .duel-fill { height:100%; border-radius:999px; min-width:8px; transition:width 1.4s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:10px; color:#fff; font-weight:700; font-size:13px; }
+  .stats { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .stat { background:#f6f7fb; border-radius:16px; padding:10px 12px; }
+  .stat .v { font-size:20px; font-weight:700; }
+  .stat .l { font-size:12px; color:#666; }
+  .athlete-h { display:flex; align-items:center; gap:8px; font-weight:700; margin-bottom:10px; }
+  .dot { width:14px; height:14px; border-radius:50%; }
+  .trophies { display:flex; flex-wrap:wrap; gap:10px; }
+  .trophy { background:#fff8e1; border:2px solid var(--gold); border-radius:16px; padding:8px 14px; font-size:14px; font-weight:600; }
+  .trophy small { display:block; font-weight:400; color:#8a6d00; font-size:11px; }
+  .empty { color:#999; font-size:14px; }
+  .feed { list-style:none; }
+  .feed li { display:flex; gap:10px; align-items:baseline; padding:8px 0; border-bottom:1px dashed #e5e7ee; font-size:14px; }
+  .feed .pts { margin-left:auto; font-weight:700; white-space:nowrap; }
+  .feed .skip { color:#c33; }
+  .banner { text-align:center; background:#fff3cd; border-radius:14px; padding:10px; font-size:14px; margin-bottom:16px; display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🏁 ROAD TO HYROX BUDAPEST 🏁</h1>
+    <div class="countdown"><b id="days">—</b> days to race day &nbsp;·&nbsp; Oct 17</div>
+    <div class="updated" id="updated"></div>
+  </header>
+
+  <div class="banner" id="banner">⚠️ Showing demo data — database not reachable yet.</div>
+
+  <div class="track-card">
+    <div class="track-title"><span>THE RACE</span><span>🎯 finish = 7,700 pts</span></div>
+    <div id="lanes"></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>⚔️ This week's duel</h2>
+      <div id="duel"></div>
+    </div>
+    <div class="card"><div id="stats-0"></div></div>
+    <div class="card"><div id="stats-1"></div></div>
+    <div class="card">
+      <h2>🏆 Trophy cabinet</h2>
+      <div class="trophies" id="trophies"><span class="empty">Nothing won yet — first weekly medal awarded Sunday 23:00!</span></div>
+    </div>
+    <div class="card" style="grid-column:1/-1">
+      <h2>📜 Latest sessions</h2>
+      <ul class="feed" id="feed"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://kdeqfsnteprdxeboirus.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_nsDrpuvi-sZQCNxwftidKg_-jzugMps'; // publishable: safe in public code, read-only via RLS
+const POINTS_GOAL = 7700; // ~17 weeks x ~450 pts/week
+const RACE_DAY = new Date('2026-10-17T09:00:00');
+
+document.getElementById('days').textContent = Math.max(0, Math.ceil((RACE_DAY - new Date()) / 864e5));
+
+const DEMO = {
+  athletes: [
+    { id:'andrea', name:'Andrea', emoji:'🏃‍♂️', color:'#e63946' },
+    { id:'paul', name:'Paul', emoji:'🏃', color:'#457b9d' },
+  ],
+  race_state: [
+    { athlete_id:'andrea', total_points:842, week_points:315, streak:4, total_km:16.4, total_kg:1830, sessions_completed:7, sessions_skipped:6 },
+    { athlete_id:'paul', total_points:760, week_points:280, streak:3, total_km:21.0, total_kg:900, sessions_completed:6, sessions_skipped:2 },
+  ],
+  trophies: [
+    { athlete_id:'andrea', kind:'weekly', label:'Week 27 champion', emoji:'🥇', period:'2026-W27' },
+  ],
+  workouts: [
+    { athlete_id:'andrea', date:'2026-07-05', planned:'Recovery run', result_raw:'Progression Run 30:07, 4.53 km', status:'completed', points:98, km:4.53 },
+    { athlete_id:'paul', date:'2026-07-05', planned:'Long run', result_raw:'10k easy', status:'completed', points:150, km:10 },
+    { athlete_id:'andrea', date:'2026-07-04', planned:'Compromised run', result_raw:'', status:'skipped', points:0, km:0 },
+  ],
+};
+
+async function q(table, params) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+  });
+  if (!r.ok) throw new Error(table);
+  return r.json();
+}
+
+async function load() {
+  try {
+    const [athletes, state, trophies, workouts] = await Promise.all([
+      q('athletes', 'select=id,name,emoji,color&order=id'),
+      q('race_state', 'select=*'),
+      q('trophies', 'select=*&order=awarded_at.desc'),
+      q('workouts', 'select=athlete_id,date,planned,result_raw,status,points,km&status=neq.pending&order=date.desc&limit=12'),
+    ]);
+    if (!athletes.length) throw new Error('empty');
+    render({ athletes, race_state: state, trophies, workouts });
+  } catch {
+    document.getElementById('banner').style.display = 'block';
+    render(DEMO);
+  }
+}
+
+function render(d) {
+  const st = Object.fromEntries(d.race_state.map(s => [s.athlete_id, s]));
+  const leaderId = [...d.athletes].sort((a,b) => (st[b.id]?.total_points||0) - (st[a.id]?.total_points||0))[0].id;
+
+  // race lanes
+  document.getElementById('lanes').innerHTML = d.athletes.map(a => {
+    const s = st[a.id] || {};
+    const pct = Math.min((s.total_points||0) / POINTS_GOAL, 1);
+    return `<div class="lane">
+      <span class="lane-label" style="color:${a.color};-webkit-text-stroke:.5px #fff">${a.name}</span>
+      <span class="lane-pts">${Math.round(s.total_points||0)} pts</span>
+      <div class="finish"></div>
+      <span class="runner ${a.id===leaderId?'leader':''}" style="left:${4 + pct*88}%">${a.emoji}</span>
+    </div>`;
+  }).join('');
+
+  // weekly duel
+  const maxWeek = Math.max(...d.athletes.map(a => st[a.id]?.week_points||0), 1);
+  document.getElementById('duel').innerHTML = d.athletes.map(a => {
+    const w = st[a.id]?.week_points || 0;
+    return `<div class="duel-row">
+      <div class="duel-name"><span>${a.emoji} ${a.name}</span><span>${Math.round(w)} pts</span></div>
+      <div class="duel-bar"><div class="duel-fill" style="width:${(w/maxWeek)*100}%;background:${a.color}"></div></div>
+    </div>`;
+  }).join('') + `<p style="font-size:13px;color:#888;margin-top:6px">Weekly medal decided Sunday 23:00 🕚</p>`;
+
+  // stat cards
+  d.athletes.forEach((a, i) => {
+    const s = st[a.id] || {};
+    document.getElementById(`stats-${i}`).innerHTML = `
+      <div class="athlete-h"><span class="dot" style="background:${a.color}"></span>${a.emoji} ${a.name}</div>
+      <div class="stats">
+        <div class="stat"><div class="v">🔥 ${s.streak||0}</div><div class="l">day streak</div></div>
+        <div class="stat"><div class="v">${s.total_km||0}</div><div class="l">km run</div></div>
+        <div class="stat"><div class="v">${((s.total_kg||0)/1000).toFixed(1)}t</div><div class="l">lifted</div></div>
+        <div class="stat"><div class="v">${s.sessions_completed||0}<span style="color:#c33;font-size:14px"> / ${s.sessions_skipped||0}💀</span></div><div class="l">done / skipped</div></div>
+      </div>`;
+  });
+
+  // trophies
+  if (d.trophies.length) {
+    const names = Object.fromEntries(d.athletes.map(a => [a.id, a.name]));
+    document.getElementById('trophies').innerHTML = d.trophies.map(t =>
+      `<div class="trophy">${t.emoji} ${t.label}<small>${names[t.athlete_id]}${t.period ? ' · ' + t.period : ''}</small></div>`).join('');
+  }
+
+  // feed
+  const names = Object.fromEntries(d.athletes.map(a => [a.id, a]));
+  document.getElementById('feed').innerHTML = d.workouts.map(w => {
+    const a = names[w.athlete_id];
+    const desc = w.status === 'skipped' ? `<span class="skip">skipped — ${w.planned}</span>` : (w.result_raw || w.planned || '').slice(0, 90);
+    return `<li><span>${a.emoji}</span><span><b>${a.name}</b> · ${w.date} · ${desc}</span>
+      <span class="pts">${w.status==='skipped' ? '💀 0' : '+' + Math.round(w.points)} pts</span></li>`;
+  }).join('') || '<li class="empty">No sessions synced yet.</li>';
+
+  document.getElementById('updated').textContent = 'Official standings update daily at 14:00 & 23:00';
+}
+load();
+</script>
+</body>
+</html>
