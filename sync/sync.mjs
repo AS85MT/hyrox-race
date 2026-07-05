@@ -101,6 +101,40 @@ function isoWeek(d) {
   return `${t.getUTCFullYear()}-W${String(wk).padStart(2, '0')}`;
 }
 
+// Two sheet formats are supported, detected from the header row:
+//  - "coach log" (Andrea): Date | Day | Wk | Session | My result | RPE | Notes | Weight AM
+//  - "checkbox plan" (Paul): Done | Week | Phase | # | Date | Session | Location | What to do | Coaching cue
+function normalizeRow(r, format, today) {
+  if (format === 'checkbox') {
+    const date = parseSheetDate(r[4]);
+    if (!date) return null;
+    const done = String(r[0]).trim().toUpperCase() === 'TRUE';
+    const planned = [r[5], r[7]].filter(Boolean).join(' — ');
+    // grace period: an unticked session only counts as skipped after 2 days
+    const graceDays = (today - date) / 86400000;
+    return {
+      date, planned,
+      result: done ? 'TRUE' : '',
+      rpeRaw: '', notes: '',
+      logged: done,
+      skipped: !done && graceDays > 2,
+      // when done, credit the prescribed volume from the plan text
+      parseText: planned,
+      parseResult: 'Athlete ticked the session as completed exactly as prescribed',
+    };
+  }
+  const date = parseSheetDate(r[0]);
+  if (!date) return null;
+  const [_, __, ___, planned = '', result = '', rpeRaw = '', notes = ''] = r;
+  return {
+    date, planned, result, rpeRaw, notes,
+    logged: (result + notes).trim().length > 0,
+    skipped: /skip|no training/i.test(result + ' ' + notes) && !/run|km|kg|min|completed|done/i.test(result),
+    parseText: result + ' ' + notes,
+    parseResult: result,
+  };
+}
+
 async function syncAthlete(athlete, today) {
   if (!athlete.sheet_csv_url) return [];
   // rows already parsed in a previous sync: skip re-parsing if the text is unchanged
@@ -111,14 +145,17 @@ async function syncAthlete(athlete, today) {
   const res = await fetch(athlete.sheet_csv_url, { redirect: 'follow' });
   if (!res.ok) throw new Error(`sheet ${athlete.id}: ${res.status}`);
   const rows = parseCsv(await res.text());
-  const header = rows.findIndex((r) => (r[0] || '').trim().toLowerCase() === 'date');
+  let format = 'coach', header = rows.findIndex((r) => (r[0] || '').trim().toLowerCase() === 'date');
+  if (header === -1) {
+    header = rows.findIndex((r) => (r[0] || '').trim().toLowerCase() === 'done');
+    format = 'checkbox';
+  }
+  if (header === -1) throw new Error(`sheet ${athlete.id}: no recognizable header row`);
   const workouts = [];
   for (const r of rows.slice(header + 1)) {
-    const date = parseSheetDate(r[0]);
-    if (!date || date > today) continue;
-    const [_, __, ___, planned = '', result = '', rpeRaw = '', notes = ''] = r;
-    const logged = (result + notes).trim().length > 0;
-    const skipped = /skip|no training/i.test(result + ' ' + notes) && !/run|km|kg|min|completed|done/i.test(result);
+    const n = normalizeRow(r, format, today);
+    if (!n || n.date > today) continue;
+    const { date, planned, result, rpeRaw, notes, logged, skipped } = n;
     const isRest = /recovery|rest/i.test(planned);
 
     const id = `${athlete.id}:${iso(date)}`;
@@ -132,9 +169,9 @@ async function syncAthlete(athlete, today) {
       status = prev.status;
     } else if (logged && !skipped) {
       try {
-        parsed = await claudeExtract(planned, result, notes);
+        parsed = await claudeExtract(planned, n.parseResult, notes);
         if (parsed.status) status = parsed.status;
-      } catch { parsed = regexExtract(result + ' ' + notes); }
+      } catch { parsed = regexExtract(n.parseText); }
     }
     if (isRest && status === 'completed') status = 'rest';
 
@@ -155,14 +192,13 @@ async function syncAthlete(athlete, today) {
 }
 
 function computeState(workouts) {
-  const active = workouts.filter((w) => w.status === 'completed' || w.status === 'rest');
-  // streak: consecutive active days ending at the most recent logged day
-  const activeDays = new Set(active.map((w) => w.date));
-  const sorted = [...activeDays].sort();
+  // streak: consecutive planned sessions completed (not calendar days — plans differ:
+  // Andrea trains 7 days/week, Paul 5), counting back from the most recent resolved session
+  const resolved = workouts.filter((w) => w.status !== 'pending').sort((a, b) => a.date.localeCompare(b.date));
   let streak = 0;
-  if (sorted.length) {
-    let d = new Date(sorted[sorted.length - 1]);
-    while (activeDays.has(iso(d))) { streak++; d.setUTCDate(d.getUTCDate() - 1); }
+  for (let i = resolved.length - 1; i >= 0; i--) {
+    if (resolved[i].status === 'completed' || resolved[i].status === 'rest') streak++;
+    else break;
   }
   const thisWeek = isoWeek(new Date());
   const base = workouts.reduce((s, w) => s + w.points, 0);
@@ -217,10 +253,16 @@ async function main() {
   const athletes = await sb('athletes?select=*', { method: 'GET', headers: { Prefer: '' } });
   const allWorkouts = {};
   for (const a of athletes) {
-    allWorkouts[a.id] = await syncAthlete(a, now);
-    const state = computeState(allWorkouts[a.id]);
-    await sb(`race_state?athlete_id=eq.${a.id}`, { method: 'PATCH', body: JSON.stringify({ ...state, updated_at: new Date().toISOString() }) });
-    console.log(a.name, state);
+    // one athlete's broken/private sheet must not take down the other's sync
+    try {
+      allWorkouts[a.id] = await syncAthlete(a, now);
+      const state = computeState(allWorkouts[a.id]);
+      await sb(`race_state?athlete_id=eq.${a.id}`, { method: 'PATCH', body: JSON.stringify({ ...state, updated_at: new Date().toISOString() }) });
+      console.log(a.name, state);
+    } catch (e) {
+      allWorkouts[a.id] = [];
+      console.error(`sync failed for ${a.id}:`, e.message);
+    }
   }
   const awarded = await awardTrophies(athletes, allWorkouts, now);
   await sb('sync_log', { method: 'POST', body: JSON.stringify({ detail: `synced ${athletes.length} athletes, ${awarded} trophies` }) });
