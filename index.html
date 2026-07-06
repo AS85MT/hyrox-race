@@ -22,8 +22,12 @@
   .namechip { position:absolute; transform:translate(-50%,-50%); font-family:'Oswald',sans-serif; font-weight:700; font-size:clamp(12px,2.1vw,22px); letter-spacing:1px; padding:2px 12px; border-radius:8px; background:rgba(255,255,255,.95); box-shadow:0 2px 4px rgba(0,0,0,.15); white-space:nowrap; }
   .namechip.a { color:var(--blue); }
   .namechip.p { color:var(--red); }
-  .days-live { position:absolute; left:86.4%; top:15.5%; width:12.6%; height:16.5%; background:#fff; border-radius:6px; display:flex; align-items:center; justify-content:center; font-family:'Oswald',sans-serif; font-weight:700; font-size:clamp(16px,3.2vw,34px); color:var(--navy); }
-  .yearpatch { position:absolute; left:83.6%; top:43%; width:13.8%; height:37%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; transform:rotate(-4deg); font-family:'Oswald',sans-serif; font-weight:600; color:#fff; background:#14151f; border-radius:6px; font-size:clamp(8px,1.5vw,16px); line-height:1.15; box-shadow:0 3px 6px rgba(0,0,0,.3); }
+  /* full rebuilt counter box covering the baked one in the art */
+  .days-live { position:absolute; left:85%; top:5%; width:14.6%; height:29%; background:#fff; border:2px solid #14151f; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 2px 5px rgba(0,0,0,.25); }
+  .days-live .dl-label { background:#14151f; color:#fff; font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:1px; font-size:clamp(6px,1.15vw,12px); text-align:center; padding:3% 0; white-space:nowrap; overflow:hidden; }
+  .days-live .dl-num { flex:1; display:flex; align-items:center; justify-content:center; font-family:'Oswald',sans-serif; font-weight:700; font-size:clamp(16px,3.4vw,36px); color:var(--navy); line-height:1; }
+  /* small chip covering only the baked "2025" on the black finish flag */
+  .yearpatch { position:absolute; left:84.8%; top:57%; width:11.4%; height:21%; display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1.2; transform:rotate(-5deg); font-family:'Oswald',sans-serif; font-weight:700; color:#fff; background:#14151f; font-size:clamp(6px,1.6vw,17px); letter-spacing:1px; border-radius:3px; white-space:nowrap; }
 
   /* road + progress */
   .road { background:#3e4048; padding:26px 3% 14px; position:relative; border-top:6px solid #55575f; }
@@ -111,8 +115,8 @@
       <img class="art" src="assets/hero.jpg" alt="HYROX race — Andrea vs Paw">
       <span class="namechip a" style="left:19.9%; top:35.5%">ANDREA</span>
       <span class="namechip p" style="left:65.3%; top:36%; padding:2px 22px">PAW</span>
-      <div class="days-live" id="days">—</div>
-      <span class="yearpatch"><b style="font-size:1.35em;letter-spacing:1px">FINISH</b>17 OCT 2026</span>
+      <div class="days-live"><span class="dl-label">DAYS TO GO</span><span class="dl-num" id="days">—</span></div>
+      <span class="yearpatch">17 OCT<br>2026</span>
     </div>
     <div class="road">
       <div class="ticks"></div>
