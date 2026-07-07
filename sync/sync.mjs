@@ -104,24 +104,25 @@ function isoWeek(d) {
 
 // Two sheet formats are supported, detected from the header row:
 //  - "coach log" (Andrea): Date | Day | Wk | Session | My result | RPE | Notes | Weight AM
-//  - "checkbox plan" (Paw): Done | Week | Phase | # | Date | Session | Location | What to do | Coaching cue
+//  - "checkbox plan" (Paw): Done | Week | Phase | # | Date | Session | Location | What to do | Coaching cue | Actually done
 function normalizeRow(r, format, today) {
   if (format === 'checkbox') {
     const date = parseSheetDate(r[4]);
     if (!date) return null;
     const done = String(r[0]).trim().toUpperCase() === 'TRUE';
     const planned = [r[5], r[7]].filter(Boolean).join(' — ');
+    const actual = (r[9] || '').trim(); // optional "Actually done" free-text column
     // grace period: an unticked session only counts as skipped after 2 days
     const graceDays = (today - date) / 86400000;
     return {
       date, planned,
-      result: done ? 'TRUE' : '',
+      result: done ? (actual || 'TRUE') : '',
       rpeRaw: '', notes: '',
       logged: done,
       skipped: !done && graceDays > 2,
-      // when done, credit the prescribed volume from the plan text
-      parseText: planned,
-      parseResult: 'Athlete ticked the session as completed exactly as prescribed',
+      // score the actual result when logged; otherwise credit the prescribed volume
+      parseText: actual || planned,
+      parseResult: actual || 'Athlete ticked the session as completed exactly as prescribed',
     };
   }
   const date = parseSheetDate(r[0]);
@@ -155,7 +156,8 @@ async function syncAthlete(athlete, today) {
   const workouts = [];
   for (const r of rows.slice(header + 1)) {
     const n = normalizeRow(r, format, today);
-    if (!n || n.date > today || n.date < RACE_START) continue;
+    // future-dated rows are skipped UNLESS already done (sessions completed ahead of plan count now)
+    if (!n || n.date < RACE_START || (n.date > today && !n.logged)) continue;
     const { date, planned, result, rpeRaw, notes, logged, skipped } = n;
     // a rest day is one whose plan STARTS with recovery/rest — "Rest 90s" or "jog recovery"
     // inside an interval description must not turn a real workout into a rest day
