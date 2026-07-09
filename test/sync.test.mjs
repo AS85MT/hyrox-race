@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  applyMovedWorkoutGrace,
+  computeState,
   headerMap,
   normalizeRow,
   parseSheetDate,
@@ -63,6 +65,50 @@ test('normalizeRow preserves Andrea coach-log format', () => {
   assert.equal(normalized.result, '6km done');
   assert.equal(normalized.rpeRaw, '8.5');
   assert.equal(normalized.logged, true);
+});
+
+test('normalizeRow treats explicit no-training coach results as skipped', () => {
+  const format = {
+    name: 'coach',
+    headers: ['Date', 'Day', 'Wk', 'Session (coach fills detailed each week)', 'My result (weights / reps / time)', 'RPE', 'Notes', 'Weight AM'],
+  };
+  const row = ['Wed 8 Jul', 'Wed', '3', 'STRENGTH A', 'Did not train', '', '', ''];
+  const normalized = normalizeRow(row, format, new Date('2026-07-11T10:00:00Z'));
+
+  assert.equal(normalized.logged, true);
+  assert.equal(normalized.skipped, true);
+});
+
+test('moved workouts do not create a skipped row on the same actual date', () => {
+  const rows = applyMovedWorkoutGrace([
+    {
+      date: parseSheetDate('July 6'),
+      idDate: parseSheetDate('July 6'),
+      planned: 'Strength',
+      logged: false,
+      skipped: true,
+    },
+    {
+      date: parseSheetDate('July 6'),
+      idDate: parseSheetDate('July 11'),
+      planned: 'Long Run',
+      logged: true,
+      skipped: false,
+    },
+  ]);
+
+  assert.equal(rows[0].skipped, false);
+  assert.equal(rows[1].skipped, false);
+});
+
+test('computeState keeps streaks visible without hidden point bonuses', () => {
+  const state = computeState([
+    { date: '2026-07-06', status: 'completed', points: 100, km: 0, kg_volume: 0 },
+    { date: '2026-07-07', status: 'completed', points: 50, km: 0, kg_volume: 0 },
+  ]);
+
+  assert.equal(state.streak, 2);
+  assert.equal(state.total_points, 150);
 });
 
 test('normalizeRow reads Paw checkbox RPE and actual date from first note line', () => {

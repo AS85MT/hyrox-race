@@ -28,8 +28,6 @@ const SCORE = {
   perKm: 10,           // bonus per km run
   per100kg: 1,         // bonus per 100 kg of lifted volume
   restDay: 10,         // doing the prescribed recovery still pays
-  streakPerDay: 5,     // bonus per consecutive active day, capped
-  streakCap: 50,
 };
 
 // Bodyweight work is logged at session level, not exercise-by-exercise.
@@ -168,6 +166,18 @@ function structuredMetrics(row, map, actualText) {
   };
 }
 
+function applyMovedWorkoutGrace(normalizedRows) {
+  const completedDates = new Set(
+    normalizedRows
+      .filter((n) => n?.logged && !n.skipped)
+      .map((n) => iso(n.date)),
+  );
+  return normalizedRows.map((n) => {
+    if (!n || n.logged || !n.skipped || !completedDates.has(iso(n.date))) return n;
+    return { ...n, skipped: false };
+  });
+}
+
 // -- regex fallback extraction of km and kg-volume from free text --
 function regexExtract(text) {
   let km = 0, kg = 0;
@@ -266,10 +276,11 @@ function normalizeRow(r, format, today) {
   const result = cell(r, map, ['my result weights reps time', 'my result', 'result'], 4);
   const rpeRaw = cell(r, map, ['rpe'], 5);
   const notes = cell(r, map, ['notes'], 6);
+  const noTraining = /\b(skip(?:ped)?|no training|did not train|didn't train)\b/i.test(`${result} ${notes}`);
   return {
     date, idDate: date, planned, result, rpeRaw, notes,
     logged: (result + notes).trim().length > 0,
-    skipped: /skip|no training/i.test(result + ' ' + notes) && !/run|km|kg|min|completed|done/i.test(result),
+    skipped: noTraining && !/run|km|kg|min|completed|done/i.test(result),
     parseText: result + ' ' + notes,
     parseResult: result,
   };
@@ -293,8 +304,8 @@ async function syncAthlete(athlete, today) {
   if (header === -1) throw new Error(`sheet ${athlete.id}: no recognizable header row`);
   const format = { name: formatName, headers: rows[header] };
   const workouts = [];
-  for (const r of rows.slice(header + 1)) {
-    const n = normalizeRow(r, format, today);
+  const normalizedRows = applyMovedWorkoutGrace(rows.slice(header + 1).map((r) => normalizeRow(r, format, today)).filter(Boolean));
+  for (const n of normalizedRows) {
     // future-dated rows are skipped UNLESS already done (sessions completed ahead of plan count now)
     if (!n || n.date < RACE_START || (n.date > today && !n.logged)) continue;
     const { date, planned, result, rpeRaw, notes, logged, skipped } = n;
@@ -352,7 +363,7 @@ function computeState(workouts) {
   const thisWeek = isoWeek(new Date());
   const base = workouts.reduce((s, w) => s + w.points, 0);
   return {
-    total_points: Math.round((base + Math.min(streak * SCORE.streakPerDay, SCORE.streakCap)) * 10) / 10,
+    total_points: Math.round(base * 10) / 10,
     week_points: Math.round(workouts.filter((w) => isoWeek(new Date(w.date)) === thisWeek).reduce((s, w) => s + w.points, 0) * 10) / 10,
     streak,
     total_km: Math.round(workouts.reduce((s, w) => s + w.km, 0) * 10) / 10,
@@ -440,6 +451,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
 export {
   BODYWEIGHT_FACTOR,
+  applyMovedWorkoutGrace,
+  computeState,
   extractBodyweightKg,
   extractBodyweightVolume,
   firstLineDate,
