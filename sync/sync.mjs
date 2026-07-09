@@ -147,6 +147,37 @@ function extractBodyweightVolume(text, fallbackBodyweight = null) {
   }
   return Math.round(volume);
 }
+function extractExternalKgVolume(text) {
+  let volume = 0;
+  for (const line of String(text || '').split(/\r?\n/)) {
+    if (/body\s*weight/i.test(line)) continue;
+    let lineVolume = 0;
+
+    // Common gym shorthand: "4x8 @26kg", "4 x 8 with 65kg".
+    for (const m of line.matchAll(/\b(\d+(?:[.,]\d+)?)\s*[x×]\s*(\d+(?:[.,]\d+)?)\s*(?:reps?)?\s*(?:@|at|with)?\s*(\d+(?:[.,]\d+)?)\s*kg\b/gi)) {
+      const sets = parseFloat(m[1].replace(',', '.'));
+      const reps = parseFloat(m[2].replace(',', '.'));
+      const load = parseFloat(m[3].replace(',', '.'));
+      lineVolume += sets * reps * load;
+    }
+
+    // Alternate order: "26kg DB press 4x8".
+    if (!lineVolume) {
+      for (const m of line.matchAll(/\b(\d+(?:[.,]\d+)?)\s*kg\b[^,\n;|]*?\b(\d+(?:[.,]\d+)?)\s*[x×]\s*(\d+(?:[.,]\d+)?)\b/gi)) {
+        const load = parseFloat(m[1].replace(',', '.'));
+        const sets = parseFloat(m[2].replace(',', '.'));
+        const reps = parseFloat(m[3].replace(',', '.'));
+        lineVolume += sets * reps * load;
+      }
+    }
+
+    if (lineVolume) volume += lineVolume;
+    else {
+      for (const m of line.matchAll(/(\d+(?:[.,]\d+)?)\s*kg\b/gi)) volume += parseFloat(m[1].replace(',', '.'));
+    }
+  }
+  return Math.round(volume);
+}
 function structuredMetrics(row, map, actualText) {
   const km = cellNum(row, map, ['run km', 'distance km', 'actual km', 'scored km']);
   const totalKg = cellNum(row, map, ['total kg volume', 'kg volume', 'load kg', 'strength load kg']);
@@ -187,10 +218,7 @@ function regexExtract(text) {
     for (const m of String(text || '').matchAll(/(\d+(?:[.,]\d+)?)\s*km\b(?!\/)/gi)) km += parseFloat(m[1].replace(',', '.')); // (?!\/) skips "km/h" speeds
     for (const m of String(text || '').matchAll(/(\d{3,4})\s*m\b/gi)) km += parseInt(m[1]) / 1000; // "2305m", "800m"
   }
-  for (const line of String(text || '').split(/\r?\n/)) {
-    if (/body\s*weight/i.test(line)) continue;
-    for (const m of line.matchAll(/(\d+(?:[.,]\d+)?)\s*kg\b/gi)) kg += parseFloat(m[1].replace(',', '.'));
-  }
+  kg += extractExternalKgVolume(text);
   kg += extractBodyweightVolume(text);
   return { km: Math.round(km * 100) / 100, kg_volume: kg, parsed_by: 'regex' };
 }
@@ -455,6 +483,7 @@ export {
   computeState,
   extractBodyweightKg,
   extractBodyweightVolume,
+  extractExternalKgVolume,
   firstLineDate,
   headerMap,
   normalizeRow,

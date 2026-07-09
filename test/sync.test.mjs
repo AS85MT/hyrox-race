@@ -52,6 +52,18 @@ Body weight: 75kg`;
   });
 });
 
+test('regexExtract estimates external kg volume from gym shorthand', () => {
+  const text = `Incline DB press 4x8 @26kg
+Rows 4x8 @65kg
+Lateral raise 3x12 @10kg`;
+
+  assert.deepEqual(regexExtract(text), {
+    km: 0,
+    kg_volume: 3272,
+    parsed_by: 'regex',
+  });
+});
+
 test('normalizeRow preserves Andrea coach-log format', () => {
   const format = {
     name: 'coach',

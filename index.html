@@ -97,6 +97,7 @@
   .logdetail { display:block; margin-top:2px; color:var(--muted); font-size:10px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .lognum { text-align:right; font-variant-numeric:tabular-nums; font-weight:700; }
   .logrow.total { background:#ede7d7; font-weight:800; }
+  .logrow.total.all { background:#e5dec9; }
   .logrow.total .logtitle { text-transform:uppercase; letter-spacing:.6px; }
   .logrow.total .logstatus { background:var(--navy); color:#fff; }
   .logstatus { text-align:center; font-size:10px; font-weight:800; letter-spacing:.6px; border-radius:999px; padding:4px 7px; background:#e8e3d3; }
@@ -476,12 +477,33 @@ function render(state, trophies, workouts) {
     .slice()
     .sort((a,b) => (b.date || '').localeCompare(a.date || ''))
     .slice(0, 12);
-  const logTotals = workouts.reduce((acc, x) => {
+  const totalFor = (rows) => rows.reduce((acc, x) => {
     acc.km += Number(x.km || 0);
     acc.kg += Number(x.kg_volume || 0);
     acc.points += Number(x.points || 0);
     return acc;
   }, { km: 0, kg: 0, points: 0 });
+  const athleteTotals = {
+    [A]: totalFor(w[A]),
+    [P]: totalFor(w[P]),
+    all: totalFor(workouts),
+  };
+  const totalRows = [
+    { key: A, who: 'Andrea', color: 'var(--blue)' },
+    { key: P, who: 'Paw', color: 'var(--red)' },
+    { key: 'all', who: 'ALL', color: 'var(--navy)', all: true },
+  ].map(({ key, who, color, all }) => {
+    const totals = athleteTotals[key];
+    return `<div class="logrow total${all ? ' all' : ''}">
+        <span class="logdate">TOTAL</span>
+        <span class="logwho" style="color:${color}">${who}</span>
+        <span class="logplan"><span class="logtitle">Logged workouts</span></span>
+        <span class="lognum">${totals.km.toFixed(1)}</span>
+        <span class="lognum">${Math.round(totals.kg).toLocaleString('en-US')}</span>
+        <span class="lognum">${Math.round(totals.points)}</span>
+        <span class="logstatus">TOTAL</span>
+      </div>`;
+  }).join('');
   const log = document.getElementById('workout-log');
   log.innerHTML = '<div class="logrow head"><span>Date</span><span>Athlete</span><span>Session</span><span class="lognum">KM</span><span class="lognum">KG Eq.</span><span class="lognum">PTS</span><span>Status</span></div>' +
     (logRows.length ? logRows.map((x) => {
@@ -503,15 +525,7 @@ function render(state, trophies, workouts) {
         <span class="lognum">${Math.round(x.points||0)}</span>
         <span class="logstatus ${statusKey}">${status.toUpperCase()}</span>
       </div>`;
-    }).join('') + `<div class="logrow total">
-        <span class="logdate"></span>
-        <span class="logwho"></span>
-        <span class="logplan"><span class="logtitle">All logged total</span></span>
-        <span class="lognum">${logTotals.km.toFixed(1)}</span>
-        <span class="lognum">${Math.round(logTotals.kg).toLocaleString('en-US')}</span>
-        <span class="lognum">${Math.round(logTotals.points)}</span>
-        <span class="logstatus">TOTAL</span>
-      </div>` : '<div class="logrow"><span class="logplan">No workouts logged yet.</span></div>');
+    }).join('') + totalRows : '<div class="logrow"><span class="logplan">No workouts logged yet.</span></div>');
 
   // trophy cabinet — last 4 week slots + monthly belts
   const wtro = document.getElementById('weekly-tros');
