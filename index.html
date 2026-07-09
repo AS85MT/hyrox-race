@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HYROX RACE — Andrea vs Paw</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%81%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -14,6 +15,7 @@
   body { font-family:'Inter',sans-serif; background:var(--cream); color:var(--ink); min-height:100vh; }
   .wrap { max-width:1020px; margin:0 auto; padding:18px 14px 40px; }
   .oswald { font-family:'Oswald',sans-serif; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 
   /* ---- HERO ---- */
   .hero { position:relative; border-radius:18px; overflow:hidden; border:3px solid var(--navy); background:#bfe3f7; box-shadow:0 6px 0 rgba(0,0,0,.15); }
@@ -94,7 +96,6 @@
   .logwho { font-family:'Oswald',sans-serif; font-weight:700; font-size:13px; }
   .logplan { min-width:0; overflow:hidden; }
   .logtitle { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:700; }
-  .logdetail { display:block; margin-top:2px; color:var(--muted); font-size:10px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .lognum { text-align:right; font-variant-numeric:tabular-nums; font-weight:700; }
   .logrow.total { background:#ede7d7; font-weight:800; }
   .logrow.total.all { background:#e5dec9; }
@@ -139,13 +140,14 @@
     .logdate { color:var(--muted); }
     .logwho { text-align:right; }
     .logplan { grid-column:1/-1; }
-    .logtitle, .logdetail { white-space:normal; }
+    .logtitle { white-space:normal; }
     .logstatus { justify-self:start; }
   }
 </style>
 </head>
 <body>
 <div class="wrap">
+  <h1 class="sr-only">Road to HYROX Budapest — Andrea versus Paw</h1>
 
   <div class="hero">
     <div class="heroart">
@@ -174,7 +176,7 @@
     </div>
   </div>
 
-  <div class="banner" id="banner">⚠️ Showing demo data — database not reachable.</div>
+  <div class="banner" id="banner" role="status">⚠️ Live race data is temporarily unavailable.</div>
 
   <div class="grid">
     <div class="block">
@@ -286,17 +288,18 @@ const SUPABASE_URL = 'https://kdeqfsnteprdxeboirus.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_nsDrpuvi-sZQCNxwftidKg_-jzugMps'; // publishable: safe in public code, read-only via RLS
 const POINTS_GOAL = 6600;   // Jul 6 -> Oct 17 at ~450 pts/week
 const WEEKLY_GOAL = 450;
-const RACE_DAY = new Date('2026-10-17T09:00:00');
+const RACE_DAY = new Date('2026-10-17T09:00:00+02:00');
 const A = 'andrea', P = 'paul';
+const romeNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Rome' }));
 
 document.getElementById('days').textContent = Math.max(0, Math.ceil((RACE_DAY - new Date()) / 864e5));
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const compact = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
 async function q(table, params) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
     headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+    signal: AbortSignal.timeout(15000),
   });
   if (!r.ok) throw new Error(table);
   return r.json();
@@ -309,80 +312,10 @@ function isoWeek(d) {
   return Math.ceil(((t - y0) / 864e5 + 1) / 7);
 }
 const fmtPts = (n) => Math.round(n).toLocaleString('en-US') + ' PTS';
-const fmtKmDetail = (n) => {
-  const num = Number(n || 0);
-  return num.toLocaleString('en-US', { minimumFractionDigits: num % 1 ? 2 : 0, maximumFractionDigits: 2 }) + ' km';
-};
 const fmtKmStat = (n) => {
   const num = Number(n || 0);
   return num.toLocaleString('en-US', { minimumFractionDigits: num % 1 ? 1 : 0, maximumFractionDigits: 1 }) + ' km';
 };
-
-function titleCaseLabel(label) {
-  return compact(label).toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase())
-    .replace(/\bDb\b/g, 'DB')
-    .replace(/\bOh\b/g, 'OH');
-}
-
-function cleanSessionTitle(planned) {
-  const text = compact(planned);
-  if (!text) return 'Workout';
-  if (/intervals?\s+were\s+moved/i.test(text) && /\b(rest|shakeout)\b/i.test(text)) return 'Rest / Shakeout';
-
-  const strength = text.match(/\bSTRENGTH\s+[A-Z](?:\s*\([^)]+\))?/i);
-  if (strength) return titleCaseLabel(strength[0]);
-
-  const intervals = text.match(/\bINTERVALS?\b(?:\s*[—-]\s*|\s+)?(\d+\s*[x×]\s*\d+\s*m)?/i);
-  if (intervals) {
-    const reps = intervals[1] ? ' ' + intervals[1].replace(/\s*[x×]\s*/i, 'x').replace(/\s+/g, '') : '';
-    return `Intervals${reps}`;
-  }
-
-  if (/\blong\s+run\b/i.test(text)) return 'Long Run';
-  if (/\bpull\s*&\s*core\b/i.test(text)) return 'Pull & Core';
-  if (/\bhyrox\s+sim\b/i.test(text)) return 'HYROX Sim';
-  if (/^\s*(recovery|rest)\b/i.test(text)) return titleCaseLabel(text.split(/[.—]/)[0]);
-
-  const parts = text.split(/\s+—\s+/).map(compact).filter(Boolean);
-  if (/^run$/i.test(parts[0] || '') && parts[1]) return `Run - ${parts[1]}`;
-  if (parts[0] && parts[0].length <= 34) return parts[0];
-
-  return text.length > 44 ? text.slice(0, 41).trim() + '...' : text;
-}
-
-function extractRunTime(text) {
-  const labeled = /(?:total|run)\s*time\s*:?\s*([0-9]{1,2}:\d{2}(?::\d{2})?|\d{1,3}\s*m\s*\d{1,2}\s*s?|\d{1,2}\s*h\s*\d{1,2}\s*m(?:\s*\d{1,2}\s*s?)?)/i.exec(text);
-  if (labeled) return compact(labeled[1]).replace(/\s+/g, '');
-  const loose = /\b\d{1,3}\s*m\s*\d{1,2}\s*s\b/i.exec(text);
-  return loose ? compact(loose[0]).replace(/\s+/g, '') : '';
-}
-
-function extractSplits(text) {
-  const splits = [];
-  for (const m of String(text || '').matchAll(/(?:^|\n)\s*(\d+(?:[.,]\d+)?\s*(?:km|m))\s*[:=-]?\s+(\d{1,2}:\d{2}(?::\d{2})?)/gi)) {
-    splits.push(`${m[1].replace(/\s+/g, '')} ${m[2]}`);
-  }
-  const reps = /\breps?\s*:?\s*([^|\n]+)/i.exec(text);
-  if (!splits.length && reps) {
-    const times = reps[1].match(/\d{1,2}:\d{2}(?::\d{2})?/g) || [];
-    if (times.length > 1) return times.join(' / ');
-  }
-  return splits.join(' · ');
-}
-
-function workoutDetail(x) {
-  const raw = `${x.result_raw || ''}\n${x.notes || ''}`;
-  const isRun = Number(x.km || 0) > 0 || /\b(run|interval|jog|shakeout)\b/i.test(`${x.planned || ''}\n${raw}`);
-  if (!isRun) return '';
-
-  const parts = [];
-  if (Number(x.km || 0) > 0) parts.push(fmtKmDetail(x.km));
-  const time = extractRunTime(raw);
-  if (time) parts.push(time);
-  const splits = extractSplits(raw);
-  if (splits) parts.push(`Splits ${splits}`);
-  return parts.join(' · ');
-}
 
 function render(state, trophies, workouts) {
   const st = { [A]: state.find(s => s.athlete_id === A) || {}, [P]: state.find(s => s.athlete_id === P) || {} };
@@ -399,7 +332,7 @@ function render(state, trophies, workouts) {
     document.getElementById('pts-'+k).textContent = fmtPts(pts);
   }
   const markerPos = { a: progress.a.pos, p: progress.p.pos };
-  const minMarkerGap = 15;
+  const minMarkerGap = window.innerWidth <= 520 ? 22 : 15;
   if (Math.abs(markerPos.a - markerPos.p) < minMarkerGap) {
     const mid = (markerPos.a + markerPos.p) / 2;
     let left = clamp(mid - minMarkerGap/2, 5, 94);
@@ -414,7 +347,7 @@ function render(state, trophies, workouts) {
   document.getElementById('marker-p').style.left = markerPos.p + '%';
 
   // weekly duel
-  const now = new Date();
+  const now = romeNow();
   const wk = isoWeek(now);
   const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay()+6)%7));
   const sun = new Date(mon); sun.setDate(mon.getDate()+6);
@@ -430,7 +363,7 @@ function render(state, trophies, workouts) {
   // countdown to Sunday 23:00 (weekly medal decision)
   const end = new Date(mon); end.setDate(mon.getDate()+6); end.setHours(23,0,0,0);
   const tick = () => {
-    let ms = end - new Date();
+    let ms = end - romeNow();
     if (ms < 0) ms = 0;
     const d = Math.floor(ms/864e5), h = Math.floor(ms%864e5/36e5), m = Math.floor(ms%36e5/6e4), s = Math.floor(ms%6e4/1e3);
     document.getElementById('endsin').textContent = `${d} DAY${d===1?'':'S'} ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
@@ -449,14 +382,14 @@ function render(state, trophies, workouts) {
   const upd = [st[A].updated_at, st[P].updated_at].filter(Boolean).sort().pop();
   if (upd) {
     const u = new Date(upd);
-    const today = u.toDateString() === new Date().toDateString();
+    const today = u.toLocaleDateString('en-CA', { timeZone: 'Europe/Rome' }) === new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Rome' });
     document.getElementById('lastupdate').textContent =
-      (today ? 'Today, ' : u.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ', ') +
-      u.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+      (today ? 'Today, ' : u.toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'Europe/Rome'}) + ', ') +
+      u.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Rome'});
   }
 
   // stats: this month
-  const moKey = new Date().toISOString().slice(0,7);
+  const moKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const monthTotals = { [A]: { km: 0, kg: 0 }, [P]: { km: 0, kg: 0 } };
   for (const id of [A, P]) {
     const mine = w[id].filter(x => x.date.startsWith(moKey));
@@ -512,14 +445,11 @@ function render(state, trophies, workouts) {
       const date = new Date(`${x.date}T00:00:00Z`).toLocaleDateString('en-GB',{day:'numeric',month:'short'}).toUpperCase();
       const statusKey = ['completed','skipped','rest','pending'].includes(x.status) ? x.status : 'completed';
       const status = esc(statusKey);
-      const plan = String(x.planned || '');
-      const title = cleanSessionTitle(plan);
-      const detail = workoutDetail(x);
-      const detailHtml = detail ? `<span class="logdetail" title="${esc(detail)}">${esc(detail)}</span>` : '';
+      const title = String(x.public_title || 'Workout');
       return `<div class="logrow">
         <span class="logdate">${date}</span>
         <span class="logwho" style="color:${color}">${who}</span>
-        <span class="logplan" title="${esc(plan)}"><span class="logtitle">${esc(title)}</span>${detailHtml}</span>
+        <span class="logplan"><span class="logtitle">${esc(title)}</span></span>
         <span class="lognum">${Number(x.km||0).toFixed(1)}</span>
         <span class="lognum">${Math.round(x.kg_volume||0).toLocaleString('en-US')}</span>
         <span class="lognum">${Math.round(x.points||0)}</span>
@@ -566,7 +496,7 @@ async function load() {
     const [state, trophies, workouts] = await Promise.all([
       q('race_state', 'select=*'),
       q('trophies', 'select=*&order=awarded_at.desc'),
-      q('workouts', 'select=athlete_id,date,planned,result_raw,notes,status,km,kg_volume,points&status=neq.pending&order=date.asc'),
+      q('workouts', 'select=athlete_id,date,public_title,status,km,kg_volume,points&status=neq.pending&order=date.asc'),
     ]);
     render(state, trophies, workouts);
   } catch (e) {

@@ -18,8 +18,8 @@ const run = promisify(execFile);
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const RACE_DAY = new Date('2026-10-17');
 const RACE_START = new Date(Date.UTC(2026, 6, 6)); // the duel officially starts Mon 6 Jul — earlier sessions don't score
+const REQUEST_TIMEOUT_MS = 20_000;
 
 // ---- scoring config: argue about fairness here ----
 const SCORE = {
@@ -37,6 +37,7 @@ const BODYWEIGHT_FACTOR = 0.7;
 async function sb(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...opts,
+    signal: opts.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers: {
       apikey: SERVICE_KEY,
       Authorization: `Bearer ${SERVICE_KEY}`,
@@ -70,20 +71,24 @@ function parseCsv(text) {
 }
 
 const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+function utcDate(year, month, day) {
+  const date = new Date(Date.UTC(year, month, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day ? date : null;
+}
 function parseSheetDate(s) {
   // "Mon 22 Jun", "July 6", "2026-07-06" -> training-plan year dates.
   const text = String(s || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    const d = new Date(`${text}T00:00:00Z`);
-    return Number.isNaN(d.getTime()) ? null : d;
+  const isoDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (isoDate) {
+    return utcDate(+isoDate[1], +isoDate[2] - 1, +isoDate[3]);
   }
   for (const m of text.matchAll(/\b(\d{1,2})\s+([A-Za-z]{3,9})\b/g)) {
     const mo = MONTHS[m[2].slice(0, 3).toLowerCase()];
-    if (mo != null) return new Date(Date.UTC(2026, mo, +m[1]));
+    if (mo != null) return utcDate(2026, mo, +m[1]);
   }
   for (const m of text.matchAll(/\b([A-Za-z]{3,9})\s+(\d{1,2})\b/g)) {
     const mo = MONTHS[m[1].slice(0, 3).toLowerCase()];
-    if (mo != null) return new Date(Date.UTC(2026, mo, +m[2]));
+    if (mo != null) return utcDate(2026, mo, +m[2]);
   }
   return null;
 }
@@ -111,6 +116,14 @@ function cellNum(row, map, aliases, fallbackIndex = null) {
   const m = String(raw).replace(',', '.').match(/-?\d+(?:\.\d+)?/);
   return m ? parseFloat(m[0]) : null;
 }
+const nonnegative = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+};
+const validRpe = (value) => {
+  const number = Number.parseFloat(String(value ?? '').replace(',', '.'));
+  return Number.isFinite(number) && number >= 1 && number <= 10 ? number : null;
+};
 function firstLineDate(text) {
   const first = String(text || '').split(/\r?\n/).map((x) => x.trim()).find(Boolean);
   return first ? parseSheetDate(first) : null;
@@ -122,9 +135,14 @@ function extractBodyweightKg(text) {
   const m = /body\s*weight\s*:?\s*(\d+(?:[.,]\d+)?)\s*kg\b/i.exec(text || '');
   return m ? parseFloat(m[1].replace(',', '.')) : null;
 }
-function sumRepList(text) {
+function countBodyweightReps(text) {
+  let remaining = String(text || '');
   let reps = 0;
-  for (const m of String(text || '').matchAll(/(\d+(?:[.,]\d+)?)(?!\s*(?:s|sec|secs|second|seconds|min|m|km|kg)\b)/gi)) {
+  remaining = remaining.replace(/\b(\d+(?:[.,]\d+)?)\s*[x×]\s*(\d+(?:[.,]\d+)?)\b/gi, (_, sets, perSet) => {
+    reps += parseFloat(sets.replace(',', '.')) * parseFloat(perSet.replace(',', '.'));
+    return ' ';
+  });
+  for (const m of remaining.matchAll(/\b(\d+(?:[.,]\d+)?)(?!\d|[.,]\d|\s*(?:s|sec|secs|second|seconds|min|m|km|kg)\b)/gi)) {
     reps += parseFloat(m[1].replace(',', '.'));
   }
   return reps;
@@ -139,11 +157,11 @@ function extractBodyweightVolume(text, fallbackBodyweight = null) {
     const afterColon = line.includes(':') ? line.slice(line.indexOf(':') + 1) : line;
     const bodyweightMovement = /\b(pull[- ]?ups?|chin[- ]?ups?|muscle[- ]?ups?|dips?|push[- ]?ups?|inverted\s+rows?|rows?|lunges?|squats?)\b/i.test(line);
     if (!bodyweightMovement) continue;
-    const reps = sumRepList(afterColon);
+    // A weighted row such as "Rows 4x8 @65kg" is external load, even if the
+    // same note also contains a separate bodyweight measurement.
+    if (/\d+(?:[.,]\d+)?\s*kg\b/i.test(line) && !/body\s*weight/i.test(line)) continue;
+    const reps = countBodyweightReps(afterColon);
     if (reps > 0) volume += bodyweight * reps * BODYWEIGHT_FACTOR;
-  }
-  for (const m of String(text || '').matchAll(/(\d+(?:[.,]\d+)?)\s+muscle[- ]?ups?\b/gi)) {
-    volume += bodyweight * parseFloat(m[1].replace(',', '.')) * BODYWEIGHT_FACTOR;
   }
   return Math.round(volume);
 }
@@ -191,8 +209,8 @@ function structuredMetrics(row, map, actualText) {
   const hasStructured = km != null || totalKg != null || externalKg > 0 || bodyweightVolume != null || bodyweightReps != null;
   if (!hasStructured) return null;
   return {
-    km: km ?? 0,
-    kg_volume: totalKg ?? Math.round(externalKg + (bodyweightVolume || 0)),
+    km: nonnegative(km),
+    kg_volume: nonnegative(totalKg ?? Math.round(externalKg + (bodyweightVolume || 0))),
     parsed_by: 'structured',
   };
 }
@@ -215,12 +233,18 @@ function regexExtract(text) {
   const totalDistance = /total\s+distance\s*:?\s*(\d+(?:[.,]\d+)?)\s*km\b/i.exec(text || '');
   if (totalDistance) km = parseFloat(totalDistance[1].replace(',', '.'));
   else {
-    for (const m of String(text || '').matchAll(/(\d+(?:[.,]\d+)?)\s*km\b(?!\/)/gi)) km += parseFloat(m[1].replace(',', '.')); // (?!\/) skips "km/h" speeds
-    for (const m of String(text || '').matchAll(/(\d{3,4})\s*m\b/gi)) km += parseInt(m[1]) / 1000; // "2305m", "800m"
+    let remaining = String(text || '');
+    remaining = remaining.replace(/\b(\d+(?:[.,]\d+)?)\s*[x×]\s*(\d+(?:[.,]\d+)?)\s*(km|m)\b/gi, (_, reps, distance, unit) => {
+      const repeated = parseFloat(reps.replace(',', '.')) * parseFloat(distance.replace(',', '.'));
+      km += unit.toLowerCase() === 'km' ? repeated : repeated / 1000;
+      return ' ';
+    });
+    for (const m of remaining.matchAll(/(\d+(?:[.,]\d+)?)\s*km\b(?!\/)/gi)) km += parseFloat(m[1].replace(',', '.')); // (?!\/) skips "km/h" speeds
+    for (const m of remaining.matchAll(/(\d{3,4})\s*m\b/gi)) km += parseInt(m[1]) / 1000; // "2305m", "800m"
   }
   kg += extractExternalKgVolume(text);
   kg += extractBodyweightVolume(text);
-  return { km: Math.round(km * 100) / 100, kg_volume: kg, parsed_by: 'regex' };
+  return { km: Math.round(nonnegative(km) * 100) / 100, kg_volume: nonnegative(kg), parsed_by: 'regex' };
 }
 
 async function claudeExtract(planned, result, notes) {
@@ -228,7 +252,37 @@ async function claudeExtract(planned, result, notes) {
 Reply with ONLY a JSON object: {"status":"completed"|"skipped"|"rest", "km": <total km run, number>, "kg_volume": <estimated total kg lifted = sum of (weight x sets x reps) where stated, else weight totals mentioned; number>, "rpe": <number or null>}. If an explicit total distance is logged, use it instead of summing interval splits. Do not count "body weight: 75kg" as a lift by itself; only use bodyweight when reps are stated. For bodyweight reps, approximate load as bodyweight x reps x 0.70. "rest" only if the plan was a recovery day. If the athlete did anything at all, status is "completed".`;
   const { stdout } = await run('claude', ['-p', prompt, '--model', 'haiku'], { timeout: 60000 });
   const json = JSON.parse(stdout.match(/\{[\s\S]*\}/)[0]);
-  return { ...json, parsed_by: 'claude' };
+  return {
+    status: ['completed', 'skipped', 'rest'].includes(json.status) ? json.status : undefined,
+    km: nonnegative(json.km),
+    kg_volume: nonnegative(json.kg_volume),
+    rpe: validRpe(json.rpe),
+    parsed_by: 'claude',
+  };
+}
+
+function publicWorkoutTitle(planned) {
+  const text = String(planned || '').replace(/\s+/g, ' ').trim();
+  if (!text) return 'Workout';
+  if (/intervals?\s+(?:were\s+)?moved/i.test(text) && /\b(rest|shakeout|recovery)\b/i.test(text)) return 'Rest / Shakeout';
+  const strength = text.match(/\bstrength\s+([a-z])\b/i);
+  if (strength) return `Strength ${strength[1].toUpperCase()}`;
+  const intervals = text.match(/\bintervals?\b(?:\s*[—-]\s*|\s+)?(\d+\s*[x×]\s*\d+\s*m)?/i);
+  if (intervals) return `Intervals${intervals[1] ? ` ${intervals[1].replace(/\s*[x×]\s*/i, 'x').replace(/\s+/g, '')}` : ''}`;
+  if (/\blong\s+run\b/i.test(text)) return 'Long Run';
+  if (/\bpull\s*&\s*core\b/i.test(text)) return 'Pull & Core';
+  if (/\bhyrox\s+sim/i.test(text)) return 'HYROX Sim';
+  if (/^\s*(recovery|rest)\b/i.test(text)) return 'Recovery / Rest';
+  if (/\b(run|jog|shakeout)\b/i.test(text)) return 'Run';
+  if (/\b(strength|lift|gym|press|squat|deadlift)\b/i.test(text)) return 'Strength';
+  return 'Workout';
+}
+
+function isRecoveryPlan(planned) {
+  const text = String(planned || '');
+  return /^\s*(recovery|rest)\b/i.test(text)
+    || (/\b(?:intervals?|workout|session)\s+(?:were\s+)?moved\b/i.test(text) && /\b(rest|shakeout|recovery)\b/i.test(text))
+    || (/\btravel\s+day\b/i.test(text) && /\b(rest|shakeout|recovery)\b/i.test(text));
 }
 
 function isoWeek(d) {
@@ -315,13 +369,12 @@ function normalizeRow(r, format, today) {
 }
 
 async function syncAthlete(athlete, today) {
-  if (!athlete.sheet_csv_url) return [];
   // rows already parsed in a previous sync: skip re-parsing if the text is unchanged
   const existing = Object.fromEntries(
-    (await sb(`workouts?athlete_id=eq.${athlete.id}&select=id,result_raw,notes,status,km,kg_volume,parsed_by`, { method: 'GET', headers: { Prefer: '' } }))
+    (await sb(`workouts?athlete_id=eq.${athlete.id}&select=id,planned,result_raw,notes,status,km,kg_volume,parsed_by`, { method: 'GET', headers: { Prefer: '' } }))
       .map((w) => [w.id, w]),
   );
-  const res = await fetch(athlete.sheet_csv_url, { redirect: 'follow' });
+  const res = await fetch(athlete.sheet_csv_url, { redirect: 'follow', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`sheet ${athlete.id}: ${res.status}`);
   const rows = parseCsv(await res.text());
   let formatName = 'coach', header = rows.findIndex((r) => (r[0] || '').trim().toLowerCase() === 'date');
@@ -333,27 +386,30 @@ async function syncAthlete(athlete, today) {
   const format = { name: formatName, headers: rows[header] };
   const workouts = [];
   const normalizedRows = applyMovedWorkoutGrace(rows.slice(header + 1).map((r) => normalizeRow(r, format, today)).filter(Boolean));
+  if (!normalizedRows.length) throw new Error(`sheet ${athlete.id}: no workout rows found; refusing to erase stored data`);
+  const dateOccurrences = new Map();
   for (const n of normalizedRows) {
     // future-dated rows are skipped UNLESS already done (sessions completed ahead of plan count now)
     if (!n || n.date < RACE_START || (n.date > today && !n.logged)) continue;
     const { date, planned, result, rpeRaw, notes, logged, skipped } = n;
-    // a rest day is one whose plan STARTS with recovery/rest — "Rest 90s" or "jog recovery"
-    // inside an interval description must not turn a real workout into a rest day
-    const isRest = /^\s*(recovery|rest)\b/i.test(planned);
+    const isRest = isRecoveryPlan(planned);
 
-    const id = `${athlete.id}:${iso(n.idDate || date)}`;
+    const baseId = `${athlete.id}:${iso(n.idDate || date)}`;
+    const occurrence = (dateOccurrences.get(baseId) || 0) + 1;
+    dateOccurrences.set(baseId, occurrence);
+    const id = occurrence === 1 ? baseId : `${baseId}:${occurrence}`;
     const prev = existing[id];
     // regex-parsed rows are re-parsed every run (cheap, and they upgrade themselves to
     // claude parses once the token is configured); claude-parsed rows are cached forever
-    const unchanged = prev && prev.result_raw === result && prev.notes === notes && prev.status !== 'pending' && prev.parsed_by === 'claude';
+    const unchanged = prev && prev.planned === planned && prev.result_raw === result && prev.notes === notes && prev.status !== 'pending' && prev.parsed_by === 'claude';
 
     let parsed = { km: 0, kg_volume: 0, parsed_by: 'regex' };
     let status = skipped ? 'skipped' : logged ? 'completed' : 'pending';
     if (n.structured && logged && !skipped) {
       parsed = n.structured;
     } else if (unchanged) {
-      parsed = { km: prev.km, kg_volume: prev.kg_volume, parsed_by: prev.parsed_by };
-      status = prev.status;
+      parsed = { km: nonnegative(prev.km), kg_volume: nonnegative(prev.kg_volume), parsed_by: prev.parsed_by };
+      status = ['completed', 'skipped', 'rest'].includes(prev.status) ? prev.status : status;
     } else if (logged && !skipped) {
       try {
         parsed = await claudeExtract(planned, n.parseResult, notes);
@@ -363,7 +419,9 @@ async function syncAthlete(athlete, today) {
     // training for real on a planned recovery day still counts as a full session
     if (isRest && status === 'completed' && parsed.km < 1 && !parsed.kg_volume) status = 'rest';
 
-    const rpe = parseFloat(String(rpeRaw).replace(',', '.')) || parsed.rpe || null;
+    parsed.km = nonnegative(parsed.km);
+    parsed.kg_volume = nonnegative(parsed.kg_volume);
+    const rpe = validRpe(rpeRaw) ?? validRpe(parsed.rpe);
     let points = 0;
     if (status === 'completed') points = SCORE.base * ((rpe || SCORE.rpeRef) / SCORE.rpeRef) + parsed.km * SCORE.perKm + (parsed.kg_volume / 100) * SCORE.per100kg;
     if (status === 'rest') points = SCORE.restDay;
@@ -372,14 +430,20 @@ async function syncAthlete(athlete, today) {
       id, athlete_id: athlete.id, date: iso(date),
       planned, result_raw: result, notes, rpe,
       status, km: parsed.km || 0, kg_volume: parsed.kg_volume || 0,
-      points: Math.round(points * 10) / 10, parsed_by: parsed.parsed_by, updated_at: new Date().toISOString(),
+      points: Math.round(nonnegative(points) * 10) / 10, parsed_by: parsed.parsed_by,
+      public_title: publicWorkoutTitle(planned), updated_at: new Date().toISOString(),
     });
   }
   if (workouts.length) await sb('workouts?on_conflict=id', { method: 'POST', body: JSON.stringify(workouts) });
+  const currentIds = new Set(workouts.map((w) => w.id));
+  const staleIds = Object.keys(existing).filter((id) => !currentIds.has(id));
+  for (const id of staleIds) {
+    await sb(`workouts?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
   return workouts;
 }
 
-function computeState(workouts) {
+function computeState(workouts, now = new Date()) {
   // streak: consecutive planned sessions completed (not calendar days — plans differ:
   // Andrea trains 7 days/week, Paw 5), counting back from the most recent resolved session
   const resolved = workouts.filter((w) => w.status !== 'pending').sort((a, b) => a.date.localeCompare(b.date));
@@ -388,7 +452,7 @@ function computeState(workouts) {
     if (resolved[i].status === 'completed' || resolved[i].status === 'rest') streak++;
     else break;
   }
-  const thisWeek = isoWeek(new Date());
+  const thisWeek = isoWeek(now);
   const base = workouts.reduce((s, w) => s + w.points, 0);
   return {
     total_points: Math.round(base * 10) / 10,
@@ -399,6 +463,12 @@ function computeState(workouts) {
     sessions_completed: workouts.filter((w) => w.status === 'completed').length,
     sessions_skipped: workouts.filter((w) => w.status === 'skipped').length,
   };
+}
+
+async function loadStoredWorkouts(athleteId) {
+  return sb(`workouts?athlete_id=eq.${athleteId}&select=id,athlete_id,date,status,km,kg_volume,points`, {
+    method: 'GET', headers: { Prefer: '' },
+  });
 }
 
 async function awardTrophies(athletes, allWorkouts, now) {
@@ -455,21 +525,29 @@ async function main() {
   const athletes = await sb('athletes?select=*', { method: 'GET', headers: { Prefer: '' } });
   const allWorkouts = {};
   let allSynced = true;
+  const failures = [];
   for (const a of athletes) {
+    if (!a.sheet_csv_url) {
+      allWorkouts[a.id] = await loadStoredWorkouts(a.id);
+      console.log(`${a.name}: no sheet configured; preserving ${allWorkouts[a.id].length} stored workouts`);
+      continue;
+    }
     // one athlete's broken/private sheet must not take down the other's sync
     try {
       allWorkouts[a.id] = await syncAthlete(a, now);
-      const state = computeState(allWorkouts[a.id]);
+      const state = computeState(allWorkouts[a.id], now);
       await sb(`race_state?athlete_id=eq.${a.id}`, { method: 'PATCH', body: JSON.stringify({ ...state, updated_at: new Date().toISOString() }) });
       console.log(a.name, state);
     } catch (e) {
       allWorkouts[a.id] = [];
       allSynced = false;
+      failures.push(a.id);
       console.error(`sync failed for ${a.id}:`, e.message);
     }
   }
   const awarded = allSynced ? await awardTrophies(athletes, allWorkouts, now) : 0;
   await sb('sync_log', { method: 'POST', body: JSON.stringify({ detail: `synced ${athletes.length} athletes${allSynced ? '' : ' with failures'}, ${awarded} trophies` }) });
+  if (!allSynced) throw new Error(`Sync failed for: ${failures.join(', ')}`);
   console.log('done');
 }
 
@@ -486,9 +564,11 @@ export {
   extractExternalKgVolume,
   firstLineDate,
   headerMap,
+  isRecoveryPlan,
   normalizeRow,
   parseCsv,
   parseSheetDate,
+  publicWorkoutTitle,
   regexExtract,
   structuredMetrics,
 };

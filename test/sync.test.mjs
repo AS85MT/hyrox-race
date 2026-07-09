@@ -5,8 +5,10 @@ import {
   applyMovedWorkoutGrace,
   computeState,
   headerMap,
+  isRecoveryPlan,
   normalizeRow,
   parseSheetDate,
+  publicWorkoutTitle,
   regexExtract,
   structuredMetrics,
 } from '../sync/sync.mjs';
@@ -17,6 +19,11 @@ test('parseSheetDate handles coach-log dates with weekday prefixes', () => {
   assert.equal(iso(parseSheetDate('Mon 22 Jun')), '2026-06-22');
   assert.equal(iso(parseSheetDate('July 6')), '2026-07-06');
   assert.equal(iso(parseSheetDate('2026-07-08')), '2026-07-08');
+});
+
+test('parseSheetDate rejects calendar dates that roll into another month', () => {
+  assert.equal(parseSheetDate('2026-02-30'), null);
+  assert.equal(parseSheetDate('31 Jun'), null);
 });
 
 test('regexExtract prefers explicit total distance over interval splits', () => {
@@ -62,6 +69,44 @@ Lateral raise 3x12 @10kg`;
     kg_volume: 3272,
     parsed_by: 'regex',
   });
+});
+
+test('regexExtract multiplies repeated running intervals', () => {
+  assert.deepEqual(regexExtract('5 x 800m hard'), {
+    km: 4,
+    kg_volume: 0,
+    parsed_by: 'regex',
+  });
+});
+
+test('regexExtract counts bodyweight shorthand once and does not double-count weighted rows', () => {
+  assert.deepEqual(regexExtract('Body weight: 75kg\n10 muscle-ups'), {
+    km: 0,
+    kg_volume: 525,
+    parsed_by: 'regex',
+  });
+  assert.deepEqual(regexExtract('Body weight: 75kg\nRows 4x8 @65kg'), {
+    km: 0,
+    kg_volume: 2080,
+    parsed_by: 'regex',
+  });
+  assert.deepEqual(regexExtract('Body weight: 75kg\nDips: 10 reps, rest 60s'), {
+    km: 0,
+    kg_volume: 525,
+    parsed_by: 'regex',
+  });
+});
+
+test('recovery detection handles prefixed travel and moved-session plans', () => {
+  assert.equal(isRecoveryPlan('Rest — mobility only'), true);
+  assert.equal(isRecoveryPlan('Travel day. Intervals were moved. Rest or easy shakeout.'), true);
+  assert.equal(isRecoveryPlan('Intervals 5x800m with 90s jog recovery'), false);
+});
+
+test('publicWorkoutTitle produces a useful label without exposing the full plan', () => {
+  assert.equal(publicWorkoutTitle('STRENGTH A (private appointment) — private travel details'), 'Strength A');
+  assert.equal(publicWorkoutTitle('Run — Intervals — 5 × 800m hard'), 'Intervals 5x800m');
+  assert.equal(publicWorkoutTitle('Private appointment and custom coaching notes'), 'Workout');
 });
 
 test('normalizeRow preserves Andrea coach-log format', () => {
@@ -157,6 +202,15 @@ test('structuredMetrics supports one-row bodyweight logging', () => {
   assert.deepEqual(metrics, {
     km: 0,
     kg_volume: 5750,
+    parsed_by: 'structured',
+  });
+});
+
+test('structuredMetrics clamps negative spreadsheet metrics', () => {
+  const headers = ['Run KM', 'External KG Volume'];
+  assert.deepEqual(structuredMetrics(['-5', '-500'], headerMap(headers), ''), {
+    km: 0,
+    kg_volume: 0,
     parsed_by: 'structured',
   });
 });

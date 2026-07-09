@@ -4,14 +4,14 @@ Gamified training race. Two Google Sheets in → points, trophies, and a cartoon
 
 ## Architecture
 - **Google Sheets** (one each) — source of truth for workouts.
-- **Supabase** (free tier) — Postgres storing workouts, race state, trophies. Site reads with the publishable key; RLS makes everything read-only to the public.
-- **GitHub Actions** (.github/workflows/sync.yml) — the "official situation check" at 14:00 & 23:00 Rome time: fetches both sheets, scores each session (base × RPE + km/kg bonuses + streaks), awards weekly medals (Sun 23:00) and monthly belts.
+- **Supabase** (free tier) — Postgres storing workouts, race state, trophies. The site can read only sanitized workout summaries and race results with the publishable key; sheet URLs and raw notes stay private.
+- **GitHub Actions** (.github/workflows/sync.yml) — the "official situation check" at 14:00 & 23:00 Rome time: fetches both sheets, scores each session (base × RPE + km/kg bonuses), awards weekly medals (Sun 23:00) and monthly belts.
 - **index.html** — static race site (GitHub Pages), reads only from Supabase.
 
 ## Scoring (tune in `sync/sync.mjs` → `SCORE`)
 - Completed session: 50 pts × (RPE/7), + 10 pts/km run, + 1 pt/100 kg lifted
 - Prescribed recovery day done: 10 pts · Skipped: 0 pts 💀
-- Streak: +5 pts/consecutive day (max 50)
+- Streak: displayed as consecutive resolved sessions; no hidden point bonus
 - Finish line = 6,600 pts (~450/week to race day)
 
 ## Sheet logging
@@ -32,8 +32,8 @@ Keep it simple: one row per workout. For a run, fill `Actual Date`, `Run KM`, an
 Bodyweight equivalent volume is always `Bodyweight KG × Bodyweight Reps × 0.70`. `External KG Volume` is only for weighted/gym work where you already know the load volume. The sync adds them together.
 
 ## One-time setup (remaining)
-1. **Database**: Supabase Dashboard → SQL Editor → paste supabase/schema.sql → Run.
-2. **Sheets access**: each sheet must be readable by the sync job — File → Share → "Anyone with the link: Viewer" (or Publish to web as CSV). Add Paw's CSV URL to his row in the `athletes` table.
+1. **Database**: Supabase Dashboard → SQL Editor → paste supabase/schema.sql → Run. Rerun it after pulling schema changes; it also applies the privacy grants used by the public site.
+2. **Sheets access**: each sheet must be readable by the sync job — File → Share → "Anyone with the link: Viewer" (or Publish to web as CSV). Add both CSV URLs directly to the private `athletes` table; do not commit them to this repository.
 3. **GitHub secrets** (Settings → Secrets and variables → Actions):
    - `SUPABASE_URL` = https://kdeqfsnteprdxeboirus.supabase.co
    - `SUPABASE_SERVICE_KEY` = service_role key (never in code!)
@@ -41,5 +41,5 @@ Bodyweight equivalent volume is always `Bodyweight KG × Bodyweight Reps × 0.70
 4. Trigger the first sync manually: repo → Actions → "Race sync" → Run workflow.
 
 ## Local preview
-`python3 -m http.server 4173 --directory hyrox-race` → http://localhost:4173
-Shows demo data until the database has real rows.
+From this repository's root: `python3 -m http.server 4173` → http://localhost:4173
+Shows an empty fallback state with a warning if the database is unavailable.

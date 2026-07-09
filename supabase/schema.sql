@@ -22,8 +22,12 @@ create table if not exists workouts (
   kg_volume numeric not null default 0,
   points numeric not null default 0,
   parsed_by text,                     -- 'structured' | 'claude' | 'regex'
+  public_title text,                  -- sanitized session label safe for the public site
   updated_at timestamptz not null default now()
 );
+
+-- Keep this file safe to rerun against an existing installation.
+alter table workouts add column if not exists public_title text;
 
 create table if not exists race_state (
   athlete_id text primary key references athletes(id),
@@ -62,16 +66,44 @@ alter table race_state enable row level security;
 alter table trophies  enable row level security;
 alter table sync_log  enable row level security;
 
-create policy "public read athletes"  on athletes  for select using (true);
-create policy "public read workouts"  on workouts  for select using (true);
-create policy "public read race"      on race_state for select using (true);
-create policy "public read trophies"  on trophies  for select using (true);
-create policy "public read synclog"   on sync_log  for select using (true);
+drop policy if exists "public read athletes" on athletes;
+drop policy if exists "public read workouts" on workouts;
+drop policy if exists "public read race" on race_state;
+drop policy if exists "public read trophies" on trophies;
+drop policy if exists "public read synclog" on sync_log;
 
--- Seed the two racers (Paw's sheet URL to be filled in when he shares it)
+create policy "public read workouts" on workouts for select using (true);
+create policy "public read race" on race_state for select using (true);
+create policy "public read trophies" on trophies for select using (true);
+
+-- RLS limits rows, not columns. Do not expose sheet URLs, raw workout notes,
+-- parsing metadata, or operational logs through the publishable browser key.
+revoke select on athletes, workouts, sync_log from anon, authenticated;
+grant select (athlete_id, date, public_title, status, km, kg_volume, points)
+  on workouts to anon, authenticated;
+grant select on race_state, trophies to anon, authenticated;
+
+-- Reject malformed metrics even if a future parser or manual edit misbehaves.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'workouts_status_valid' and conrelid = 'workouts'::regclass) then
+    alter table workouts add constraint workouts_status_valid
+      check (status in ('completed', 'skipped', 'rest', 'pending')) not valid;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'workouts_rpe_valid' and conrelid = 'workouts'::regclass) then
+    alter table workouts add constraint workouts_rpe_valid
+      check (rpe is null or rpe between 1 and 10) not valid;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'workouts_metrics_nonnegative' and conrelid = 'workouts'::regclass) then
+    alter table workouts add constraint workouts_metrics_nonnegative
+      check (km >= 0 and kg_volume >= 0 and points >= 0) not valid;
+  end if;
+end $$;
+
+-- Seed the two racers. Configure both private sheet URLs directly in Supabase;
+-- keeping them out of source control avoids publishing the full training sheets.
 insert into athletes (id, name, emoji, color, sheet_csv_url) values
-  ('andrea', 'Andrea', '🏃‍♂️', '#e63946',
-   'https://docs.google.com/spreadsheets/d/1fe20xccu1RAWGCQ6lgfTJr5MAm_vQ-U39kfZuxr6IaY/export?format=csv&gid=29381785'),
+  ('andrea', 'Andrea', '🏃‍♂️', '#e63946', null),
   ('paul', 'Paw', '🏃', '#457b9d', null)
 on conflict (id) do update set
   name = excluded.name,
