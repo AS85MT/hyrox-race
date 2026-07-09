@@ -83,6 +83,7 @@ test('normalizeRow reads Paw checkbox RPE and actual date from first note line',
   assert.equal(normalized.logged, true);
   assert.equal(normalized.planned, 'Run - Intervals — 5 x 800m hard');
   assert.equal(normalized.result, 'July 8\nTotal distance: 6.03km');
+  assert.equal(normalized.notes, 'Run time: 31m31s');
   assert.deepEqual(normalized.structured, {
     km: 6.03,
     kg_volume: 263,

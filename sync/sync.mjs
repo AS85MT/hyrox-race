@@ -117,6 +117,9 @@ function firstLineDate(text) {
   const first = String(text || '').split(/\r?\n/).map((x) => x.trim()).find(Boolean);
   return first ? parseSheetDate(first) : null;
 }
+function combineNotes(...parts) {
+  return parts.map((x) => String(x || '').trim()).filter(Boolean).join('\n');
+}
 function extractBodyweightKg(text) {
   const m = /body\s*weight\s*:?\s*(\d+(?:[.,]\d+)?)\s*kg\b/i.exec(text || '');
   return m ? parseFloat(m[1].replace(',', '.')) : null;
@@ -233,6 +236,12 @@ function normalizeRow(r, format, today) {
     const actual = cell(r, map, ['actual workout', 'actually done', 'actual notes', 'result'], 9).trim(); // optional free-text column
     const actualDate = parseSheetDate(cell(r, map, ['actual date', 'completed date', 'workout date'])) || firstLineDate(actual) || plannedDate;
     const planned = [cell(r, map, ['session'], 5), cell(r, map, ['planned workout', 'what to do', 'planned'], 7)].filter(Boolean).join(' — ');
+    const runTime = cell(r, map, ['run time', 'run duration', 'actual run time']).trim();
+    const scoreNotes = cell(r, map, ['score notes', 'notes']);
+    const notes = combineNotes(
+      scoreNotes,
+      runTime && !actual.toLowerCase().includes(runTime.toLowerCase()) ? `Run time: ${runTime}` : '',
+    );
     // grace period: an unticked session only counts as skipped after 2 days
     const graceDays = (today - plannedDate) / 86400000;
     return {
@@ -241,7 +250,7 @@ function normalizeRow(r, format, today) {
       planned,
       result: done ? (actual || 'TRUE') : '',
       rpeRaw: cell(r, map, ['rpe', 'rpe rate of perceived effort 110'], 10),
-      notes: cell(r, map, ['score notes', 'notes']),
+      notes,
       logged: done,
       skipped: !done && graceDays > 2,
       // score the actual result when logged; otherwise credit the prescribed volume
