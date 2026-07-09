@@ -78,12 +78,13 @@
 
   /* stats */
   .statcols { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  .statcol h3 { font-size:11px; letter-spacing:1px; color:var(--muted); text-align:center; margin-bottom:8px; }
-  .statvals { display:flex; justify-content:space-around; margin-bottom:6px; }
-  .statvals div { text-align:center; }
-  .statvals .n { font-family:'Oswald',sans-serif; font-weight:700; font-size:17px; }
-  .statvals .who { font-size:10px; font-weight:800; letter-spacing:1px; }
-  svg.spark { width:100%; height:52px; }
+  .statcol h3 { font-size:11px; letter-spacing:1px; color:var(--muted); margin-bottom:10px; }
+  .statlist { display:grid; gap:10px; }
+  .statline { display:grid; grid-template-columns:64px 1fr 74px; gap:9px; align-items:center; }
+  .statwho { font-family:'Oswald',sans-serif; font-weight:700; font-size:13px; letter-spacing:.5px; }
+  .statbar { height:16px; background:#e8e3d3; border-radius:4px; overflow:hidden; }
+  .statbar i { display:block; height:100%; width:0%; transition:width 1s ease; }
+  .statvalue { text-align:right; font-family:'Oswald',sans-serif; font-weight:700; font-size:17px; white-space:nowrap; }
 
   /* workout log */
   .wide { grid-column:1/-1; }
@@ -95,6 +96,9 @@
   .logtitle { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:700; }
   .logdetail { display:block; margin-top:2px; color:var(--muted); font-size:10px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .lognum { text-align:right; font-variant-numeric:tabular-nums; font-weight:700; }
+  .logrow.total { background:#ede7d7; font-weight:800; }
+  .logrow.total .logtitle { text-transform:uppercase; letter-spacing:.6px; }
+  .logrow.total .logstatus { background:var(--navy); color:#fff; }
   .logstatus { text-align:center; font-size:10px; font-weight:800; letter-spacing:.6px; border-radius:999px; padding:4px 7px; background:#e8e3d3; }
   .logstatus.completed { background:#dff0dc; color:#226421; }
   .logstatus.skipped { background:#f2d5d2; color:#8a261e; }
@@ -125,6 +129,8 @@
     .mlabel { margin-top:34px; }
     .mlabel .pct { font-size:17px; }
     .mlabel .pts { font-size:10px; }
+    .statcols { grid-template-columns:1fr; }
+    .statline { grid-template-columns:62px 1fr 72px; }
     .logtable { background:transparent; border:0; gap:8px; }
     .logrow { grid-template-columns:1fr auto; gap:4px 10px; border:1px solid var(--line); border-radius:8px; }
     .logrow.head { display:none; }
@@ -213,19 +219,33 @@
       <div class="pad statcols">
         <div class="statcol">
           <h3>KM RUN THIS MONTH</h3>
-          <div class="statvals">
-            <div><div class="who" style="color:var(--blue)">ANDREA</div><div class="n" id="km-a">0 km</div></div>
-            <div><div class="who" style="color:var(--red)">PAW</div><div class="n" id="km-p">0 km</div></div>
+          <div class="statlist">
+            <div class="statline">
+              <span class="statwho" style="color:var(--blue)">ANDREA</span>
+              <span class="statbar"><i id="kmbar-a" style="background:var(--blue)"></i></span>
+              <span class="statvalue" id="km-a">0 km</span>
+            </div>
+            <div class="statline">
+              <span class="statwho" style="color:var(--red)">PAW</span>
+              <span class="statbar"><i id="kmbar-p" style="background:var(--red)"></i></span>
+              <span class="statvalue" id="km-p">0 km</span>
+            </div>
           </div>
-          <svg class="spark" id="spark-km" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
         </div>
         <div class="statcol">
-          <h3>KG LIFTED THIS MONTH</h3>
-          <div class="statvals">
-            <div><div class="who" style="color:var(--blue)">ANDREA</div><div class="n" id="kg-a">0 kg</div></div>
-            <div><div class="who" style="color:var(--red)">PAW</div><div class="n" id="kg-p">0 kg</div></div>
+          <h3>KG EQ. THIS MONTH</h3>
+          <div class="statlist">
+            <div class="statline">
+              <span class="statwho" style="color:var(--blue)">ANDREA</span>
+              <span class="statbar"><i id="kgbar-a" style="background:var(--blue)"></i></span>
+              <span class="statvalue" id="kg-a">0 kg</span>
+            </div>
+            <div class="statline">
+              <span class="statwho" style="color:var(--red)">PAW</span>
+              <span class="statbar"><i id="kgbar-p" style="background:var(--red)"></i></span>
+              <span class="statvalue" id="kg-p">0 kg</span>
+            </div>
           </div>
-          <svg class="spark" id="spark-kg" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
         </div>
       </div>
     </div>
@@ -291,6 +311,10 @@ const fmtPts = (n) => Math.round(n).toLocaleString('en-US') + ' PTS';
 const fmtKmDetail = (n) => {
   const num = Number(n || 0);
   return num.toLocaleString('en-US', { minimumFractionDigits: num % 1 ? 2 : 0, maximumFractionDigits: 2 }) + ' km';
+};
+const fmtKmStat = (n) => {
+  const num = Number(n || 0);
+  return num.toLocaleString('en-US', { minimumFractionDigits: num % 1 ? 1 : 0, maximumFractionDigits: 1 }) + ' km';
 };
 
 function titleCaseLabel(label) {
@@ -430,21 +454,34 @@ function render(state, trophies, workouts) {
       u.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
   }
 
-  // stats: this month + weekly sparklines
+  // stats: this month
   const moKey = new Date().toISOString().slice(0,7);
-  for (const [id,k] of [[A,'a'],[P,'p']]) {
+  const monthTotals = { [A]: { km: 0, kg: 0 }, [P]: { km: 0, kg: 0 } };
+  for (const id of [A, P]) {
     const mine = w[id].filter(x => x.date.startsWith(moKey));
-    document.getElementById('km-'+k).textContent = Math.round(mine.reduce((s,x)=>s+x.km,0)) + ' km';
-    document.getElementById('kg-'+k).textContent = Math.round(mine.reduce((s,x)=>s+x.kg_volume,0)).toLocaleString('en-US') + ' kg';
+    monthTotals[id].km = mine.reduce((s,x)=>s+Number(x.km||0),0);
+    monthTotals[id].kg = mine.reduce((s,x)=>s+Number(x.kg_volume||0),0);
   }
-  drawSpark('spark-km', w, x => x.km);
-  drawSpark('spark-kg', w, x => x.kg_volume);
+  const maxMonthKm = Math.max(monthTotals[A].km, monthTotals[P].km, 1);
+  const maxMonthKg = Math.max(monthTotals[A].kg, monthTotals[P].kg, 1);
+  for (const [id,k] of [[A,'a'],[P,'p']]) {
+    document.getElementById('km-'+k).textContent = fmtKmStat(monthTotals[id].km);
+    document.getElementById('kg-'+k).textContent = Math.round(monthTotals[id].kg).toLocaleString('en-US') + ' kg';
+    document.getElementById('kmbar-'+k).style.width = (monthTotals[id].km / maxMonthKm * 100).toFixed(1) + '%';
+    document.getElementById('kgbar-'+k).style.width = (monthTotals[id].kg / maxMonthKg * 100).toFixed(1) + '%';
+  }
 
   // recent workout log
   const logRows = workouts
     .slice()
     .sort((a,b) => (b.date || '').localeCompare(a.date || ''))
     .slice(0, 12);
+  const logTotals = workouts.reduce((acc, x) => {
+    acc.km += Number(x.km || 0);
+    acc.kg += Number(x.kg_volume || 0);
+    acc.points += Number(x.points || 0);
+    return acc;
+  }, { km: 0, kg: 0, points: 0 });
   const log = document.getElementById('workout-log');
   log.innerHTML = '<div class="logrow head"><span>Date</span><span>Athlete</span><span>Session</span><span class="lognum">KM</span><span class="lognum">KG Eq.</span><span class="lognum">PTS</span><span>Status</span></div>' +
     (logRows.length ? logRows.map((x) => {
@@ -466,7 +503,15 @@ function render(state, trophies, workouts) {
         <span class="lognum">${Math.round(x.points||0)}</span>
         <span class="logstatus ${statusKey}">${status.toUpperCase()}</span>
       </div>`;
-    }).join('') : '<div class="logrow"><span class="logplan">No workouts logged yet.</span></div>');
+    }).join('') + `<div class="logrow total">
+        <span class="logdate"></span>
+        <span class="logwho"></span>
+        <span class="logplan"><span class="logtitle">All logged total</span></span>
+        <span class="lognum">${logTotals.km.toFixed(1)}</span>
+        <span class="lognum">${Math.round(logTotals.kg).toLocaleString('en-US')}</span>
+        <span class="lognum">${Math.round(logTotals.points)}</span>
+        <span class="logstatus">TOTAL</span>
+      </div>` : '<div class="logrow"><span class="logplan">No workouts logged yet.</span></div>');
 
   // trophy cabinet — last 4 week slots + monthly belts
   const wtro = document.getElementById('weekly-tros');
@@ -500,27 +545,6 @@ function render(state, trophies, workouts) {
   if (!badges.length) badges.push('<div class="badge locked">100KM CLUB<br>🔒</div>','<div class="badge locked">10-TON LIFTER<br>🔒</div>');
   badges.push('<div class="badge locked">??? <br>🔒</div>');
   document.getElementById('badges').innerHTML = badges.join('');
-}
-
-function drawSpark(elId, w, metric) {
-  // weekly totals since race start, one line per athlete
-  const start = new Date('2026-07-06');
-  const weeks = Math.max(2, Math.min(14, Math.ceil((new Date() - start) / (7*864e5)) + 1));
-  const series = { andrea: [], paul: [] };
-  for (const id of [A, P]) {
-    for (let i = 0; i < weeks; i++) {
-      const w0 = new Date(start); w0.setDate(start.getDate() + i*7);
-      const w1 = new Date(w0); w1.setDate(w0.getDate() + 7);
-      series[id].push(w[id].filter(x => { const d = new Date(x.date); return d >= w0 && d < w1; }).reduce((s,x) => s + metric(x), 0));
-    }
-  }
-  const max = Math.max(...series[A], ...series[P], 1);
-  const line = (vals, color) => {
-    const pts = vals.map((v,i) => `${(i/(weeks-1))*96+2},${38-(v/max)*34}`).join(' ');
-    return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round"/>` +
-      vals.map((v,i) => `<circle cx="${(i/(weeks-1))*96+2}" cy="${38-(v/max)*34}" r="2" fill="${color}"/>`).join('');
-  };
-  document.getElementById(elId).innerHTML = line(series[P], '#d63b2f') + line(series[A], '#1d55c4');
 }
 
 async function load() {
