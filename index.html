@@ -85,6 +85,18 @@
   .statvals .who { font-size:10px; font-weight:800; letter-spacing:1px; }
   svg.spark { width:100%; height:52px; }
 
+  /* workout log */
+  .wide { grid-column:1/-1; }
+  .logtable { display:grid; gap:1px; background:var(--line); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .logrow { display:grid; grid-template-columns:82px 74px minmax(160px,1fr) 64px 88px 58px 92px; gap:10px; align-items:center; background:var(--card); padding:9px 10px; font-size:12px; }
+  .logrow.head { background:#ede7d7; color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; }
+  .logwho { font-family:'Oswald',sans-serif; font-weight:700; font-size:13px; }
+  .logplan { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .lognum { text-align:right; font-variant-numeric:tabular-nums; font-weight:700; }
+  .logstatus { text-align:center; font-size:10px; font-weight:800; letter-spacing:.6px; border-radius:999px; padding:4px 7px; background:#e8e3d3; }
+  .logstatus.completed { background:#dff0dc; color:#226421; }
+  .logstatus.skipped { background:#f2d5d2; color:#8a261e; }
+
   /* trophies */
   .tro-row { display:flex; justify-content:space-around; margin-bottom:12px; }
   .tro { text-align:center; width:56px; }
@@ -105,6 +117,21 @@
 
   .footerbar { margin-top:16px; background:var(--navy); color:#fff; border-radius:12px; text-align:center; padding:13px; font-family:'Oswald',sans-serif; letter-spacing:2px; font-size:15px; }
   .banner { display:none; text-align:center; background:#fff3cd; border:1px solid #e6d38a; border-radius:10px; padding:9px; font-size:13px; margin-top:12px; }
+
+  @media (max-width:520px) {
+    .marker img { width:46px; height:46px; }
+    .mlabel { margin-top:34px; }
+    .mlabel .pct { font-size:17px; }
+    .mlabel .pts { font-size:10px; }
+    .logtable { background:transparent; border:0; gap:8px; }
+    .logrow { grid-template-columns:1fr auto; gap:4px 10px; border:1px solid var(--line); border-radius:8px; }
+    .logrow.head { display:none; }
+    .logrow > span { min-width:0; }
+    .logdate { color:var(--muted); }
+    .logwho { text-align:right; }
+    .logplan { grid-column:1/-1; white-space:normal; }
+    .logstatus { justify-self:start; }
+  }
 </style>
 </head>
 <body>
@@ -218,6 +245,13 @@
         <div class="badges" id="badges"></div>
       </div>
     </div>
+
+    <div class="block wide">
+      <h2>WORKOUT LOG</h2>
+      <div class="pad">
+        <div class="logtable" id="workout-log"></div>
+      </div>
+    </div>
   </div>
 
   <div class="footerbar">🏆 TRAIN HARD. COMPETE FAIR. FINISH STRONG. 🤘</div>
@@ -232,6 +266,8 @@ const RACE_DAY = new Date('2026-10-17T09:00:00');
 const A = 'andrea', P = 'paul';
 
 document.getElementById('days').textContent = Math.max(0, Math.ceil((RACE_DAY - new Date()) / 864e5));
+const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 async function q(table, params) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
@@ -254,14 +290,29 @@ function render(state, trophies, workouts) {
   const w = { [A]: workouts.filter(x => x.athlete_id === A), [P]: workouts.filter(x => x.athlete_id === P) };
 
   // hero track
+  const progress = {};
   for (const [id, k] of [[A,'a'],[P,'p']]) {
     const pts = st[id].total_points || 0;
     const pct = Math.min(pts / POINTS_GOAL, 1);
+    progress[k] = { pct, pos: 5 + pct*89 };
     document.getElementById('fill-'+k).style.width = (pct*100).toFixed(1)+'%';
-    document.getElementById('marker-'+k).style.left = (5 + pct*89) + '%';
     document.getElementById('pct-'+k).textContent = Math.round(pct*100)+'%';
     document.getElementById('pts-'+k).textContent = fmtPts(pts);
   }
+  const markerPos = { a: progress.a.pos, p: progress.p.pos };
+  const minMarkerGap = 15;
+  if (Math.abs(markerPos.a - markerPos.p) < minMarkerGap) {
+    const mid = (markerPos.a + markerPos.p) / 2;
+    let left = clamp(mid - minMarkerGap/2, 5, 94);
+    let right = clamp(mid + minMarkerGap/2, 5, 94);
+    if (left === 5) right = Math.min(94, left + minMarkerGap);
+    if (right === 94) left = Math.max(5, right - minMarkerGap);
+    const leftKey = progress.a.pos <= progress.p.pos ? 'a' : 'p';
+    markerPos[leftKey] = left;
+    markerPos[leftKey === 'a' ? 'p' : 'a'] = right;
+  }
+  document.getElementById('marker-a').style.left = markerPos.a + '%';
+  document.getElementById('marker-p').style.left = markerPos.p + '%';
 
   // weekly duel
   const now = new Date();
@@ -314,6 +365,32 @@ function render(state, trophies, workouts) {
   }
   drawSpark('spark-km', w, x => x.km);
   drawSpark('spark-kg', w, x => x.kg_volume);
+
+  // recent workout log
+  const logRows = workouts
+    .slice()
+    .sort((a,b) => (b.date || '').localeCompare(a.date || ''))
+    .slice(0, 12);
+  const log = document.getElementById('workout-log');
+  log.innerHTML = '<div class="logrow head"><span>Date</span><span>Athlete</span><span>Workout</span><span class="lognum">KM</span><span class="lognum">KG Eq.</span><span class="lognum">PTS</span><span>Status</span></div>' +
+    (logRows.length ? logRows.map((x) => {
+      const who = x.athlete_id === A ? 'Andrea' : 'Paw';
+      const color = x.athlete_id === A ? 'var(--blue)' : 'var(--red)';
+      const date = new Date(`${x.date}T00:00:00Z`).toLocaleDateString('en-GB',{day:'numeric',month:'short'}).toUpperCase();
+      const statusKey = ['completed','skipped','rest','pending'].includes(x.status) ? x.status : 'completed';
+      const status = esc(statusKey);
+      const plan = String(x.planned || 'Workout');
+      const shortPlan = plan.length > 120 ? plan.slice(0, 117).trim() + '...' : plan;
+      return `<div class="logrow">
+        <span class="logdate">${date}</span>
+        <span class="logwho" style="color:${color}">${who}</span>
+        <span class="logplan">${esc(shortPlan)}</span>
+        <span class="lognum">${Number(x.km||0).toFixed(1)}</span>
+        <span class="lognum">${Math.round(x.kg_volume||0).toLocaleString('en-US')}</span>
+        <span class="lognum">${Math.round(x.points||0)}</span>
+        <span class="logstatus ${statusKey}">${status.toUpperCase()}</span>
+      </div>`;
+    }).join('') : '<div class="logrow"><span class="logplan">No workouts logged yet.</span></div>');
 
   // trophy cabinet — last 4 week slots + monthly belts
   const wtro = document.getElementById('weekly-tros');
@@ -375,7 +452,7 @@ async function load() {
     const [state, trophies, workouts] = await Promise.all([
       q('race_state', 'select=*'),
       q('trophies', 'select=*&order=awarded_at.desc'),
-      q('workouts', 'select=athlete_id,date,status,km,kg_volume,points&status=neq.pending&order=date.asc'),
+      q('workouts', 'select=athlete_id,date,planned,status,km,kg_volume,points&status=neq.pending&order=date.asc'),
     ]);
     render(state, trophies, workouts);
   } catch (e) {

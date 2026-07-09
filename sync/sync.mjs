@@ -13,6 +13,7 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
 const run = promisify(execFile);
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -30,6 +31,10 @@ const SCORE = {
   streakPerDay: 5,     // bonus per consecutive active day, capped
   streakCap: 50,
 };
+
+// Bodyweight work is logged at session level, not exercise-by-exercise.
+// Use one conservative equivalent-load factor so logging stays simple.
+const BODYWEIGHT_FACTOR = 0.7;
 
 async function sb(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -68,27 +73,118 @@ function parseCsv(text) {
 
 const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
 function parseSheetDate(s) {
-  // "Mon 22 Jun" -> Date in the training-plan year (Jun-Oct 2026)
-  const m = /(\d{1,2})\s+([A-Za-z]{3})/.exec(s || '');
-  if (!m) return null;
-  const mo = MONTHS[m[2].toLowerCase()];
-  if (mo == null) return null;
-  return new Date(Date.UTC(2026, mo, +m[1]));
+  // "Mon 22 Jun", "July 6", "2026-07-06" -> training-plan year dates.
+  const text = String(s || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const d = new Date(`${text}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  for (const m of text.matchAll(/\b(\d{1,2})\s+([A-Za-z]{3,9})\b/g)) {
+    const mo = MONTHS[m[2].slice(0, 3).toLowerCase()];
+    if (mo != null) return new Date(Date.UTC(2026, mo, +m[1]));
+  }
+  for (const m of text.matchAll(/\b([A-Za-z]{3,9})\s+(\d{1,2})\b/g)) {
+    const mo = MONTHS[m[1].slice(0, 3).toLowerCase()];
+    if (mo != null) return new Date(Date.UTC(2026, mo, +m[2]));
+  }
+  return null;
 }
 const iso = (d) => d.toISOString().slice(0, 10);
+
+const normHeader = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+function headerMap(headers) {
+  const map = new Map();
+  headers.forEach((h, i) => {
+    const key = normHeader(h);
+    if (key && !map.has(key)) map.set(key, i);
+  });
+  return map;
+}
+function cell(row, map, aliases, fallbackIndex = null) {
+  for (const alias of aliases) {
+    const idx = map.get(normHeader(alias));
+    if (idx != null) return row[idx] ?? '';
+  }
+  return fallbackIndex == null ? '' : row[fallbackIndex] ?? '';
+}
+function cellNum(row, map, aliases, fallbackIndex = null) {
+  const raw = cell(row, map, aliases, fallbackIndex);
+  if (raw == null || String(raw).trim() === '') return null;
+  const m = String(raw).replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
+function firstLineDate(text) {
+  const first = String(text || '').split(/\r?\n/).map((x) => x.trim()).find(Boolean);
+  return first ? parseSheetDate(first) : null;
+}
+function extractBodyweightKg(text) {
+  const m = /body\s*weight\s*:?\s*(\d+(?:[.,]\d+)?)\s*kg\b/i.exec(text || '');
+  return m ? parseFloat(m[1].replace(',', '.')) : null;
+}
+function sumRepList(text) {
+  let reps = 0;
+  for (const m of String(text || '').matchAll(/(\d+(?:[.,]\d+)?)(?!\s*(?:s|sec|secs|second|seconds|min|m|km|kg)\b)/gi)) {
+    reps += parseFloat(m[1].replace(',', '.'));
+  }
+  return reps;
+}
+function extractBodyweightVolume(text, fallbackBodyweight = null) {
+  const bodyweight = fallbackBodyweight ?? extractBodyweightKg(text);
+  if (!bodyweight) return 0;
+  let volume = 0;
+  for (const rawLine of String(text || '').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const afterColon = line.includes(':') ? line.slice(line.indexOf(':') + 1) : line;
+    const bodyweightMovement = /\b(pull[- ]?ups?|chin[- ]?ups?|muscle[- ]?ups?|dips?|push[- ]?ups?|inverted\s+rows?|rows?|lunges?|squats?)\b/i.test(line);
+    if (!bodyweightMovement) continue;
+    const reps = sumRepList(afterColon);
+    if (reps > 0) volume += bodyweight * reps * BODYWEIGHT_FACTOR;
+  }
+  for (const m of String(text || '').matchAll(/(\d+(?:[.,]\d+)?)\s+muscle[- ]?ups?\b/gi)) {
+    volume += bodyweight * parseFloat(m[1].replace(',', '.')) * BODYWEIGHT_FACTOR;
+  }
+  return Math.round(volume);
+}
+function structuredMetrics(row, map, actualText) {
+  const km = cellNum(row, map, ['run km', 'distance km', 'actual km', 'scored km']);
+  const totalKg = cellNum(row, map, ['total kg volume', 'kg volume', 'load kg', 'strength load kg']);
+  const externalKg = cellNum(row, map, ['external kg volume', 'weighted kg volume', 'gym kg volume']) || 0;
+  let bodyweightVolume = cellNum(row, map, ['bodyweight kg volume', 'bodyweight volume kg']);
+  const bodyweightReps = cellNum(row, map, ['bodyweight reps', 'calisthenics reps', 'bw reps']);
+  if (bodyweightVolume == null && bodyweightReps != null) {
+    const bw = cellNum(row, map, ['bodyweight kg', 'body weight kg', 'bw kg']) ?? extractBodyweightKg(actualText);
+    bodyweightVolume = bw ? Math.round(bw * bodyweightReps * BODYWEIGHT_FACTOR) : 0;
+  }
+  const hasStructured = km != null || totalKg != null || externalKg > 0 || bodyweightVolume != null || bodyweightReps != null;
+  if (!hasStructured) return null;
+  return {
+    km: km ?? 0,
+    kg_volume: totalKg ?? Math.round(externalKg + (bodyweightVolume || 0)),
+    parsed_by: 'structured',
+  };
+}
 
 // -- regex fallback extraction of km and kg-volume from free text --
 function regexExtract(text) {
   let km = 0, kg = 0;
-  for (const m of text.matchAll(/(\d+(?:[.,]\d+)?)\s*km\b(?!\/)/gi)) km += parseFloat(m[1].replace(',', '.')); // (?!\/) skips "km/h" speeds
-  for (const m of text.matchAll(/(\d{3,4})\s*m\b/gi)) km += parseInt(m[1]) / 1000; // "2305m", "800m"
-  for (const m of text.matchAll(/(\d+(?:[.,]\d+)?)\s*kg\b/gi)) kg += parseFloat(m[1].replace(',', '.'));
+  const totalDistance = /total\s+distance\s*:?\s*(\d+(?:[.,]\d+)?)\s*km\b/i.exec(text || '');
+  if (totalDistance) km = parseFloat(totalDistance[1].replace(',', '.'));
+  else {
+    for (const m of String(text || '').matchAll(/(\d+(?:[.,]\d+)?)\s*km\b(?!\/)/gi)) km += parseFloat(m[1].replace(',', '.')); // (?!\/) skips "km/h" speeds
+    for (const m of String(text || '').matchAll(/(\d{3,4})\s*m\b/gi)) km += parseInt(m[1]) / 1000; // "2305m", "800m"
+  }
+  for (const line of String(text || '').split(/\r?\n/)) {
+    if (/body\s*weight/i.test(line)) continue;
+    for (const m of line.matchAll(/(\d+(?:[.,]\d+)?)\s*kg\b/gi)) kg += parseFloat(m[1].replace(',', '.'));
+  }
+  kg += extractBodyweightVolume(text);
   return { km: Math.round(km * 100) / 100, kg_volume: kg, parsed_by: 'regex' };
 }
 
 async function claudeExtract(planned, result, notes) {
   const prompt = `A coach prescribed: "${planned}". The athlete logged result: "${result}" and notes: "${notes}".
-Reply with ONLY a JSON object: {"status":"completed"|"skipped"|"rest", "km": <total km run, number>, "kg_volume": <estimated total kg lifted = sum of (weight x sets x reps) where stated, else weight totals mentioned; number>, "rpe": <number or null>}. "rest" only if the plan was a recovery day. If the athlete did anything at all, status is "completed".`;
+Reply with ONLY a JSON object: {"status":"completed"|"skipped"|"rest", "km": <total km run, number>, "kg_volume": <estimated total kg lifted = sum of (weight x sets x reps) where stated, else weight totals mentioned; number>, "rpe": <number or null>}. If an explicit total distance is logged, use it instead of summing interval splits. Do not count "body weight: 75kg" as a lift by itself; only use bodyweight when reps are stated. For bodyweight reps, approximate load as bodyweight x reps x 0.70. "rest" only if the plan was a recovery day. If the athlete did anything at all, status is "completed".`;
   const { stdout } = await run('claude', ['-p', prompt, '--model', 'haiku'], { timeout: 60000 });
   const json = JSON.parse(stdout.match(/\{[\s\S]*\}/)[0]);
   return { ...json, parsed_by: 'claude' };
@@ -101,35 +197,68 @@ function isoWeek(d) {
   const wk = Math.ceil(((t - yearStart) / 86400000 + 1) / 7);
   return `${t.getUTCFullYear()}-W${String(wk).padStart(2, '0')}`;
 }
+function isoWeekStart(period) {
+  const [, year, week] = /^(\d{4})-W(\d{2})$/.exec(period) || [];
+  if (!year) return null;
+  const jan4 = new Date(Date.UTC(+year, 0, 4));
+  const day = jan4.getUTCDay() || 7;
+  const monday = new Date(jan4);
+  monday.setUTCDate(jan4.getUTCDate() - day + 1 + (+week - 1) * 7);
+  monday.setUTCHours(0, 0, 0, 0);
+  return monday;
+}
+function isoWeekClosesAt(period) {
+  const monday = isoWeekStart(period);
+  if (!monday) return null;
+  const close = new Date(monday);
+  close.setUTCDate(monday.getUTCDate() + 6);
+  close.setUTCHours(23, 0, 0, 0);
+  return close;
+}
+function monthClosesAt(period) {
+  const [, year, month] = /^(\d{4})-(\d{2})$/.exec(period) || [];
+  if (!year) return null;
+  return new Date(Date.UTC(+year, +month, 0, 23, 0, 0, 0));
+}
 
 // Two sheet formats are supported, detected from the header row:
 //  - "coach log" (Andrea): Date | Day | Wk | Session | My result | RPE | Notes | Weight AM
 //  - "checkbox plan" (Paw): Done | Week | Phase | # | Date | Session | Location | What to do | Coaching cue | Actually done
 function normalizeRow(r, format, today) {
-  if (format === 'checkbox') {
-    const date = parseSheetDate(r[4]);
-    if (!date) return null;
-    const done = String(r[0]).trim().toUpperCase() === 'TRUE';
-    const planned = [r[5], r[7]].filter(Boolean).join(' — ');
-    const actual = (r[9] || '').trim(); // optional "Actually done" free-text column
+  if (format.name === 'checkbox') {
+    const map = headerMap(format.headers || []);
+    const plannedDate = parseSheetDate(cell(r, map, ['date'], 4));
+    if (!plannedDate) return null;
+    const done = String(cell(r, map, ['done'], 0)).trim().toUpperCase() === 'TRUE';
+    const actual = cell(r, map, ['actual workout', 'actually done', 'actual notes', 'result'], 9).trim(); // optional free-text column
+    const actualDate = parseSheetDate(cell(r, map, ['actual date', 'completed date', 'workout date'])) || firstLineDate(actual) || plannedDate;
+    const planned = [cell(r, map, ['session'], 5), cell(r, map, ['planned workout', 'what to do', 'planned'], 7)].filter(Boolean).join(' — ');
     // grace period: an unticked session only counts as skipped after 2 days
-    const graceDays = (today - date) / 86400000;
+    const graceDays = (today - plannedDate) / 86400000;
     return {
-      date, planned,
+      date: done ? actualDate : plannedDate,
+      idDate: plannedDate,
+      planned,
       result: done ? (actual || 'TRUE') : '',
-      rpeRaw: '', notes: '',
+      rpeRaw: cell(r, map, ['rpe', 'rpe rate of perceived effort 110'], 10),
+      notes: cell(r, map, ['score notes', 'notes']),
       logged: done,
       skipped: !done && graceDays > 2,
       // score the actual result when logged; otherwise credit the prescribed volume
       parseText: actual || planned,
       parseResult: actual || 'Athlete ticked the session as completed exactly as prescribed',
+      structured: structuredMetrics(r, map, actual),
     };
   }
-  const date = parseSheetDate(r[0]);
+  const map = headerMap(format.headers || []);
+  const date = parseSheetDate(cell(r, map, ['date'], 0));
   if (!date) return null;
-  const [_, __, ___, planned = '', result = '', rpeRaw = '', notes = ''] = r;
+  const planned = cell(r, map, ['session coach fills detailed each week', 'session', 'planned'], 3);
+  const result = cell(r, map, ['my result weights reps time', 'my result', 'result'], 4);
+  const rpeRaw = cell(r, map, ['rpe'], 5);
+  const notes = cell(r, map, ['notes'], 6);
   return {
-    date, planned, result, rpeRaw, notes,
+    date, idDate: date, planned, result, rpeRaw, notes,
     logged: (result + notes).trim().length > 0,
     skipped: /skip|no training/i.test(result + ' ' + notes) && !/run|km|kg|min|completed|done/i.test(result),
     parseText: result + ' ' + notes,
@@ -147,12 +276,13 @@ async function syncAthlete(athlete, today) {
   const res = await fetch(athlete.sheet_csv_url, { redirect: 'follow' });
   if (!res.ok) throw new Error(`sheet ${athlete.id}: ${res.status}`);
   const rows = parseCsv(await res.text());
-  let format = 'coach', header = rows.findIndex((r) => (r[0] || '').trim().toLowerCase() === 'date');
+  let formatName = 'coach', header = rows.findIndex((r) => (r[0] || '').trim().toLowerCase() === 'date');
   if (header === -1) {
     header = rows.findIndex((r) => (r[0] || '').trim().toLowerCase() === 'done');
-    format = 'checkbox';
+    formatName = 'checkbox';
   }
   if (header === -1) throw new Error(`sheet ${athlete.id}: no recognizable header row`);
+  const format = { name: formatName, headers: rows[header] };
   const workouts = [];
   for (const r of rows.slice(header + 1)) {
     const n = normalizeRow(r, format, today);
@@ -163,7 +293,7 @@ async function syncAthlete(athlete, today) {
     // inside an interval description must not turn a real workout into a rest day
     const isRest = /^\s*(recovery|rest)\b/i.test(planned);
 
-    const id = `${athlete.id}:${iso(date)}`;
+    const id = `${athlete.id}:${iso(n.idDate || date)}`;
     const prev = existing[id];
     // regex-parsed rows are re-parsed every run (cheap, and they upgrade themselves to
     // claude parses once the token is configured); claude-parsed rows are cached forever
@@ -171,7 +301,9 @@ async function syncAthlete(athlete, today) {
 
     let parsed = { km: 0, kg_volume: 0, parsed_by: 'regex' };
     let status = skipped ? 'skipped' : logged ? 'completed' : 'pending';
-    if (unchanged) {
+    if (n.structured && logged && !skipped) {
+      parsed = n.structured;
+    } else if (unchanged) {
       parsed = { km: prev.km, kg_volume: prev.kg_volume, parsed_by: prev.parsed_by };
       status = prev.status;
     } else if (logged && !skipped) {
@@ -189,7 +321,7 @@ async function syncAthlete(athlete, today) {
     if (status === 'rest') points = SCORE.restDay;
 
     workouts.push({
-      id: `${athlete.id}:${iso(date)}`, athlete_id: athlete.id, date: iso(date),
+      id, athlete_id: athlete.id, date: iso(date),
       planned, result_raw: result, notes, rpe,
       status, km: parsed.km || 0, kg_volume: parsed.kg_volume || 0,
       points: Math.round(points * 10) / 10, parsed_by: parsed.parsed_by, updated_at: new Date().toISOString(),
@@ -226,22 +358,36 @@ async function awardTrophies(athletes, allWorkouts, now) {
   const award = (id, athlete_id, kind, label, emoji, period) =>
     trophies.push({ id, athlete_id, kind, label, emoji, period, awarded_at: now.toISOString() });
 
-  // Weekly medal: Sunday 23:00 run closes the ISO week
-  if (now.getDay() === 0 && now.getHours() >= 20) {
-    const wk = isoWeek(now);
+  // Weekly medals are catch-up/idempotent: any closed ISO week can be awarded.
+  const closedWeeks = new Set();
+  for (const workouts of Object.values(allWorkouts)) {
+    for (const w of workouts) {
+      const wk = isoWeek(new Date(w.date));
+      const closesAt = isoWeekClosesAt(wk);
+      if (closesAt && closesAt <= now) closedWeeks.add(wk);
+    }
+  }
+  for (const wk of [...closedWeeks].sort()) {
     const scores = athletes.map((a) => ({ a, pts: allWorkouts[a.id].filter((w) => isoWeek(new Date(w.date)) === wk).reduce((s, w) => s + w.points, 0) }));
     scores.sort((x, y) => y.pts - x.pts);
     if (scores[0].pts > 0 && scores[0].pts !== scores[1]?.pts)
       award(`weekly:${wk}`, scores[0].a.id, 'weekly', `Week ${wk.split('W')[1]} champion`, '🥇', wk);
   }
-  // Monthly belt: last day of month, 23:00 run
-  const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
-  if (tomorrow.getDate() === 1 && now.getHours() >= 20) {
-    const mo = now.toISOString().slice(0, 7);
+
+  // Monthly belts are catch-up/idempotent too.
+  const closedMonths = new Set();
+  for (const workouts of Object.values(allWorkouts)) {
+    for (const w of workouts) {
+      const mo = w.date.slice(0, 7);
+      const closesAt = monthClosesAt(mo);
+      if (closesAt && closesAt <= now) closedMonths.add(mo);
+    }
+  }
+  for (const mo of [...closedMonths].sort()) {
     const scores = athletes.map((a) => ({ a, pts: allWorkouts[a.id].filter((w) => w.date.startsWith(mo)).reduce((s, w) => s + w.points, 0) }));
     scores.sort((x, y) => y.pts - x.pts);
     if (scores[0].pts > 0 && scores[0].pts !== scores[1]?.pts)
-      award(`monthly:${mo}`, scores[0].a.id, 'monthly', `${now.toLocaleString('en', { month: 'long' })} championship belt`, '🏆', mo);
+      award(`monthly:${mo}`, scores[0].a.id, 'monthly', `${new Date(`${mo}-01T00:00:00Z`).toLocaleString('en', { month: 'long' })} championship belt`, '🏆', mo);
   }
   // Milestone badges
   for (const a of athletes) {
@@ -260,6 +406,7 @@ async function main() {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Rome' }));
   const athletes = await sb('athletes?select=*', { method: 'GET', headers: { Prefer: '' } });
   const allWorkouts = {};
+  let allSynced = true;
   for (const a of athletes) {
     // one athlete's broken/private sheet must not take down the other's sync
     try {
@@ -269,12 +416,28 @@ async function main() {
       console.log(a.name, state);
     } catch (e) {
       allWorkouts[a.id] = [];
+      allSynced = false;
       console.error(`sync failed for ${a.id}:`, e.message);
     }
   }
-  const awarded = await awardTrophies(athletes, allWorkouts, now);
-  await sb('sync_log', { method: 'POST', body: JSON.stringify({ detail: `synced ${athletes.length} athletes, ${awarded} trophies` }) });
+  const awarded = allSynced ? await awardTrophies(athletes, allWorkouts, now) : 0;
+  await sb('sync_log', { method: 'POST', body: JSON.stringify({ detail: `synced ${athletes.length} athletes${allSynced ? '' : ' with failures'}, ${awarded} trophies` }) });
   console.log('done');
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}
+
+export {
+  BODYWEIGHT_FACTOR,
+  extractBodyweightKg,
+  extractBodyweightVolume,
+  firstLineDate,
+  headerMap,
+  normalizeRow,
+  parseCsv,
+  parseSheetDate,
+  regexExtract,
+  structuredMetrics,
+};

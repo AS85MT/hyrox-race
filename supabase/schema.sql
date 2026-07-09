@@ -2,7 +2,7 @@
 -- Paste this whole file into Supabase Dashboard -> SQL Editor -> Run.
 
 create table if not exists athletes (
-  id text primary key,                -- 'andrea' | 'paul'
+  id text primary key,                -- 'andrea' | 'paul' (public display name: Paw)
   name text not null,
   emoji text not null default '🏃',
   color text not null default '#e63946',
@@ -10,7 +10,7 @@ create table if not exists athletes (
 );
 
 create table if not exists workouts (
-  id text primary key,                -- athlete_id + ':' + date
+  id text primary key,                -- stable sheet row key, usually athlete_id + ':' + planned date
   athlete_id text not null references athletes(id),
   date date not null,
   planned text,
@@ -21,7 +21,7 @@ create table if not exists workouts (
   km numeric not null default 0,
   kg_volume numeric not null default 0,
   points numeric not null default 0,
-  parsed_by text,                     -- 'claude' | 'regex'
+  parsed_by text,                     -- 'structured' | 'claude' | 'regex'
   updated_at timestamptz not null default now()
 );
 
@@ -68,12 +68,15 @@ create policy "public read race"      on race_state for select using (true);
 create policy "public read trophies"  on trophies  for select using (true);
 create policy "public read synclog"   on sync_log  for select using (true);
 
--- Seed the two racers (Paul's sheet URL to be filled in when he shares it)
+-- Seed the two racers (Paw's sheet URL to be filled in when he shares it)
 insert into athletes (id, name, emoji, color, sheet_csv_url) values
   ('andrea', 'Andrea', '🏃‍♂️', '#e63946',
    'https://docs.google.com/spreadsheets/d/1fe20xccu1RAWGCQ6lgfTJr5MAm_vQ-U39kfZuxr6IaY/export?format=csv&gid=29381785'),
-  ('paul', 'Paul', '🏃', '#457b9d', null)
-on conflict (id) do nothing;
+  ('paul', 'Paw', '🏃', '#457b9d', null)
+on conflict (id) do update set
+  name = excluded.name,
+  emoji = excluded.emoji,
+  color = excluded.color;
 
 insert into race_state (athlete_id) values ('andrea'), ('paul')
 on conflict (athlete_id) do nothing;

@@ -1,4 +1,4 @@
-# 🏁 Road to HYROX Budapest — Andrea vs Paul
+# 🏁 Road to HYROX Budapest — Andrea vs Paw
 
 Gamified training race. Two Google Sheets in → points, trophies, and a cartoon race out.
 
@@ -12,11 +12,28 @@ Gamified training race. Two Google Sheets in → points, trophies, and a cartoon
 - Completed session: 50 pts × (RPE/7), + 10 pts/km run, + 1 pt/100 kg lifted
 - Prescribed recovery day done: 10 pts · Skipped: 0 pts 💀
 - Streak: +5 pts/consecutive day (max 50)
-- Finish line = 7,700 pts (~450/week to race day)
+- Finish line = 6,600 pts (~450/week to race day)
+
+## Sheet logging
+Andrea's sheet is supported in the coach-log format:
+
+`Date | Day | Wk | Session | My result | RPE | Notes | Weight AM`
+
+Paw's sheet is supported in the checkbox-plan format:
+
+`Done | Week | Phase | # | Date | Session | Location | What to do | Coaching cue | Actually done | RPE`
+
+Paw can add optional structured scoring columns after `Actually done` to avoid brittle note parsing:
+
+`Actual Date | Run KM | External KG Volume | Bodyweight KG | Bodyweight Reps | Score Notes`
+
+Keep it simple: one row per workout. For a run, fill `Actual Date`, `Run KM`, and `RPE`. For calisthenics, fill `Actual Date`, `Bodyweight KG`, `Bodyweight Reps`, and `RPE`. Free-text notes are still fine, but structured columns win when present.
+
+Bodyweight equivalent volume is always `Bodyweight KG × Bodyweight Reps × 0.70`. `External KG Volume` is only for weighted/gym work where you already know the load volume. The sync adds them together.
 
 ## One-time setup (remaining)
 1. **Database**: Supabase Dashboard → SQL Editor → paste supabase/schema.sql → Run.
-2. **Sheets access**: each sheet must be readable by the sync job — File → Share → "Anyone with the link: Viewer" (or Publish to web as CSV). Add Paul's CSV URL to his row in the `athletes` table.
+2. **Sheets access**: each sheet must be readable by the sync job — File → Share → "Anyone with the link: Viewer" (or Publish to web as CSV). Add Paw's CSV URL to his row in the `athletes` table.
 3. **GitHub secrets** (Settings → Secrets and variables → Actions):
    - `SUPABASE_URL` = https://kdeqfsnteprdxeboirus.supabase.co
    - `SUPABASE_SERVICE_KEY` = service_role key (never in code!)
