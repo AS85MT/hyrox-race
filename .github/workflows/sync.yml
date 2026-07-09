@@ -1,5 +1,7 @@
 name: Race sync
 on:
+  push:
+    branches: [main]
   schedule:
     # 14:00 and 23:00 Europe/Rome (CEST = UTC+2). Adjust to 13:00/22:00 UTC after DST ends in late Oct — race is over by then anyway.
     - cron: '0 12 * * *'
