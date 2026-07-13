@@ -91,7 +91,7 @@
   /* workout log */
   .wide { grid-column:1/-1; }
   .logtable { display:grid; gap:1px; background:var(--line); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
-  .logrow { display:grid; grid-template-columns:82px 74px minmax(160px,1fr) 64px 88px 58px 92px; gap:10px; align-items:center; background:var(--card); padding:9px 10px; font-size:12px; }
+  .logrow { display:grid; grid-template-columns:82px 74px minmax(160px,1fr) 64px 58px 92px; gap:10px; align-items:center; background:var(--card); padding:9px 10px; font-size:12px; }
   .logrow.head { background:#ede7d7; color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; }
   .logwho { font-family:'Oswald',sans-serif; font-weight:700; font-size:13px; }
   .logplan { min-width:0; overflow:hidden; }
@@ -236,17 +236,17 @@
           </div>
         </div>
         <div class="statcol">
-          <h3>KG EQ. THIS MONTH</h3>
+          <h3>WORKOUTS THIS MONTH</h3>
           <div class="statlist">
             <div class="statline">
               <span class="statwho" style="color:var(--blue)">ANDREA</span>
-              <span class="statbar"><i id="kgbar-a" style="background:var(--blue)"></i></span>
-              <span class="statvalue" id="kg-a">0 kg</span>
+              <span class="statbar"><i id="sessionsbar-a" style="background:var(--blue)"></i></span>
+              <span class="statvalue" id="sessions-a">0</span>
             </div>
             <div class="statline">
               <span class="statwho" style="color:var(--red)">PAW</span>
-              <span class="statbar"><i id="kgbar-p" style="background:var(--red)"></i></span>
-              <span class="statvalue" id="kg-p">0 kg</span>
+              <span class="statbar"><i id="sessionsbar-p" style="background:var(--red)"></i></span>
+              <span class="statvalue" id="sessions-p">0</span>
             </div>
           </div>
         </div>
@@ -390,19 +390,19 @@ function render(state, trophies, workouts) {
 
   // stats: this month
   const moKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const monthTotals = { [A]: { km: 0, kg: 0 }, [P]: { km: 0, kg: 0 } };
+  const monthTotals = { [A]: { km: 0, sessions: 0 }, [P]: { km: 0, sessions: 0 } };
   for (const id of [A, P]) {
     const mine = w[id].filter(x => x.date.startsWith(moKey));
     monthTotals[id].km = mine.reduce((s,x)=>s+Number(x.km||0),0);
-    monthTotals[id].kg = mine.reduce((s,x)=>s+Number(x.kg_volume||0),0);
+    monthTotals[id].sessions = mine.filter(x => x.status === 'completed').length;
   }
   const maxMonthKm = Math.max(monthTotals[A].km, monthTotals[P].km, 1);
-  const maxMonthKg = Math.max(monthTotals[A].kg, monthTotals[P].kg, 1);
+  const maxMonthSessions = Math.max(monthTotals[A].sessions, monthTotals[P].sessions, 1);
   for (const [id,k] of [[A,'a'],[P,'p']]) {
     document.getElementById('km-'+k).textContent = fmtKmStat(monthTotals[id].km);
-    document.getElementById('kg-'+k).textContent = Math.round(monthTotals[id].kg).toLocaleString('en-US') + ' kg';
+    document.getElementById('sessions-'+k).textContent = monthTotals[id].sessions;
     document.getElementById('kmbar-'+k).style.width = (monthTotals[id].km / maxMonthKm * 100).toFixed(1) + '%';
-    document.getElementById('kgbar-'+k).style.width = (monthTotals[id].kg / maxMonthKg * 100).toFixed(1) + '%';
+    document.getElementById('sessionsbar-'+k).style.width = (monthTotals[id].sessions / maxMonthSessions * 100).toFixed(1) + '%';
   }
 
   // recent workout log
@@ -412,10 +412,10 @@ function render(state, trophies, workouts) {
     .slice(0, 12);
   const totalFor = (rows) => rows.reduce((acc, x) => {
     acc.km += Number(x.km || 0);
-    acc.kg += Number(x.kg_volume || 0);
+    if (x.status === 'completed') acc.sessions++;
     acc.points += Number(x.points || 0);
     return acc;
-  }, { km: 0, kg: 0, points: 0 });
+  }, { km: 0, sessions: 0, points: 0 });
   const athleteTotals = {
     [A]: totalFor(w[A]),
     [P]: totalFor(w[P]),
@@ -430,15 +430,14 @@ function render(state, trophies, workouts) {
     return `<div class="logrow total${all ? ' all' : ''}">
         <span class="logdate">TOTAL</span>
         <span class="logwho" style="color:${color}">${who}</span>
-        <span class="logplan"><span class="logtitle">Logged workouts</span></span>
+        <span class="logplan"><span class="logtitle">${totals.sessions} completed workouts</span></span>
         <span class="lognum">${totals.km.toFixed(1)}</span>
-        <span class="lognum">${Math.round(totals.kg).toLocaleString('en-US')}</span>
         <span class="lognum">${Math.round(totals.points)}</span>
         <span class="logstatus">TOTAL</span>
       </div>`;
   }).join('');
   const log = document.getElementById('workout-log');
-  log.innerHTML = '<div class="logrow head"><span>Date</span><span>Athlete</span><span>Session</span><span class="lognum">KM</span><span class="lognum">KG Eq.</span><span class="lognum">PTS</span><span>Status</span></div>' +
+  log.innerHTML = '<div class="logrow head"><span>Date</span><span>Athlete</span><span>Session</span><span class="lognum">KM</span><span class="lognum">PTS</span><span>Status</span></div>' +
     (logRows.length ? logRows.map((x) => {
       const who = x.athlete_id === A ? 'Andrea' : 'Paw';
       const color = x.athlete_id === A ? 'var(--blue)' : 'var(--red)';
@@ -451,7 +450,6 @@ function render(state, trophies, workouts) {
         <span class="logwho" style="color:${color}">${who}</span>
         <span class="logplan"><span class="logtitle">${esc(title)}</span></span>
         <span class="lognum">${Number(x.km||0).toFixed(1)}</span>
-        <span class="lognum">${Math.round(x.kg_volume||0).toLocaleString('en-US')}</span>
         <span class="lognum">${Math.round(x.points||0)}</span>
         <span class="logstatus ${statusKey}">${status.toUpperCase()}</span>
       </div>`;
@@ -484,9 +482,8 @@ function render(state, trophies, workouts) {
   const badges = [];
   for (const [id, nm] of [[A,'ANDREA'],[P,'PAW']]) {
     if ((st[id].total_km||0) >= 100) badges.push(`<div class="badge">100KM CLUB<br>${nm}</div>`);
-    if ((st[id].total_kg||0) >= 10000) badges.push(`<div class="badge">10-TON LIFTER<br>${nm}</div>`);
   }
-  if (!badges.length) badges.push('<div class="badge locked">100KM CLUB<br>🔒</div>','<div class="badge locked">10-TON LIFTER<br>🔒</div>');
+  if (!badges.length) badges.push('<div class="badge locked">100KM CLUB<br>🔒</div>');
   badges.push('<div class="badge locked">??? <br>🔒</div>');
   document.getElementById('badges').innerHTML = badges.join('');
 }
@@ -494,9 +491,9 @@ function render(state, trophies, workouts) {
 async function load() {
   try {
     const [state, trophies, workouts] = await Promise.all([
-      q('race_state', 'select=*'),
+      q('race_state', 'select=athlete_id,total_points,week_points,streak,total_km,sessions_completed,sessions_skipped,updated_at'),
       q('trophies', 'select=*&order=awarded_at.desc'),
-      q('workouts', 'select=athlete_id,date,public_title,status,km,kg_volume,points&status=neq.pending&order=date.asc'),
+      q('workouts', 'select=athlete_id,date,public_title,status,km,points&status=neq.pending&order=date.asc'),
     ]);
     render(state, trophies, workouts);
   } catch (e) {

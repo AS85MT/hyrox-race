@@ -2,138 +2,145 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  SCORE,
   applyMovedWorkoutGrace,
   computeState,
-  headerMap,
   isRecoveryPlan,
   normalizeRow,
   parseSheetDate,
   publicWorkoutTitle,
-  regexExtract,
-  structuredMetrics,
+  rpeMultiplier,
+  scoreWorkout,
+  validateScoringHeaders,
 } from '../sync/sync.mjs';
 
 const iso = (date) => date.toISOString().slice(0, 10);
 
-test('parseSheetDate handles coach-log dates with weekday prefixes', () => {
+test('scoring constants match the agreed simplified model', () => {
+  assert.deepEqual(SCORE, {
+    workout: 50,
+    perKm: 7,
+    rpeRef: 7,
+    rpeStep: 0.05,
+  });
+});
+
+test('scoreWorkout gives 50 points for a non-running workout at RPE 7', () => {
+  assert.equal(scoreWorkout({ status: 'completed', km: 0, rpe: 7 }), 50);
+});
+
+test('scoreWorkout adds 7 points per KM before applying the RPE multiplier', () => {
+  assert.equal(scoreWorkout({ status: 'completed', km: 8, rpe: 7 }), 106);
+  assert.equal(scoreWorkout({ status: 'completed', km: 15, rpe: 8 }), 162.8);
+  assert.equal(scoreWorkout({ status: 'completed', km: 5, rpe: 6 }), 80.8);
+});
+
+test('RPE multiplier changes by five percent around RPE 7', () => {
+  assert.equal(rpeMultiplier(5), 0.9);
+  assert.equal(rpeMultiplier(7), 1);
+  assert.equal(rpeMultiplier(10), 1.15);
+  assert.equal(rpeMultiplier(''), 1);
+  assert.equal(rpeMultiplier(11), 1);
+});
+
+test('only completed workouts score and negative KM is ignored', () => {
+  assert.equal(scoreWorkout({ status: 'rest', km: 10, rpe: 10 }), 0);
+  assert.equal(scoreWorkout({ status: 'skipped', km: 10, rpe: 10 }), 0);
+  assert.equal(scoreWorkout({ status: 'pending', km: 10, rpe: 10 }), 0);
+  assert.equal(scoreWorkout({ status: 'completed', km: -10, rpe: 7 }), 50);
+});
+
+test('required scoring columns accept KM and the legacy Run KM spelling', () => {
+  assert.doesNotThrow(() => validateScoringHeaders(['Date', 'Session', 'Done', 'KM', 'RPE']));
+  assert.doesNotThrow(() => validateScoringHeaders(['Done', 'Date', 'Session', 'Run KM', 'RPE']));
+  assert.throws(
+    () => validateScoringHeaders(['Date', 'Session', 'Done', 'RPE']),
+    /missing required scoring columns: KM/,
+  );
+  assert.throws(
+    () => validateScoringHeaders(['Date', 'Session', 'KM']),
+    /missing required scoring columns: DONE, RPE/,
+  );
+});
+
+test('parseSheetDate handles plan dates and rejects invalid dates', () => {
   assert.equal(iso(parseSheetDate('Mon 22 Jun')), '2026-06-22');
   assert.equal(iso(parseSheetDate('July 6')), '2026-07-06');
   assert.equal(iso(parseSheetDate('2026-07-08')), '2026-07-08');
-});
-
-test('parseSheetDate rejects calendar dates that roll into another month', () => {
   assert.equal(parseSheetDate('2026-02-30'), null);
   assert.equal(parseSheetDate('31 Jun'), null);
 });
 
-test('regexExtract prefers explicit total distance over interval splits', () => {
-  const text = `July 8
-Interval runs
-400m 2:26
-800m 3:10
-400m 2:40
-800m 3:13
-1200m 7:32
-Total distance: 6.03km
-Total time: 31m31s`;
-
-  assert.deepEqual(regexExtract(text), {
-    km: 6.03,
-    kg_volume: 0,
-    parsed_by: 'regex',
-  });
-});
-
-test('regexExtract ignores bodyweight as external kg and scores bodyweight reps', () => {
-  const text = `July 7
-Pull-ups body weight: 12, 12, 10, 10, 10, full ROM
-Inverted rows body weight: 12, 12, 12, full ROM
-Dips body weight: 10, 10, 10, full ROM
-Dead hangs body weight: 40s, 50s, 60s
-Body weight: 75kg`;
-
-  assert.deepEqual(regexExtract(text), {
-    km: 0,
-    kg_volume: 6300,
-    parsed_by: 'regex',
-  });
-});
-
-test('regexExtract estimates external kg volume from gym shorthand', () => {
-  const text = `Incline DB press 4x8 @26kg
-Rows 4x8 @65kg
-Lateral raise 3x12 @10kg`;
-
-  assert.deepEqual(regexExtract(text), {
-    km: 0,
-    kg_volume: 3272,
-    parsed_by: 'regex',
-  });
-});
-
-test('regexExtract multiplies repeated running intervals', () => {
-  assert.deepEqual(regexExtract('5 x 800m hard'), {
-    km: 4,
-    kg_volume: 0,
-    parsed_by: 'regex',
-  });
-});
-
-test('regexExtract counts bodyweight shorthand once and does not double-count weighted rows', () => {
-  assert.deepEqual(regexExtract('Body weight: 75kg\n10 muscle-ups'), {
-    km: 0,
-    kg_volume: 525,
-    parsed_by: 'regex',
-  });
-  assert.deepEqual(regexExtract('Body weight: 75kg\nRows 4x8 @65kg'), {
-    km: 0,
-    kg_volume: 2080,
-    parsed_by: 'regex',
-  });
-  assert.deepEqual(regexExtract('Body weight: 75kg\nDips: 10 reps, rest 60s'), {
-    km: 0,
-    kg_volume: 525,
-    parsed_by: 'regex',
-  });
-});
-
-test('recovery detection handles prefixed travel and moved-session plans', () => {
-  assert.equal(isRecoveryPlan('Rest — mobility only'), true);
-  assert.equal(isRecoveryPlan('Travel day. Intervals were moved. Rest or easy shakeout.'), true);
-  assert.equal(isRecoveryPlan('Intervals 5x800m with 90s jog recovery'), false);
-});
-
-test('publicWorkoutTitle produces a useful label without exposing the full plan', () => {
-  assert.equal(publicWorkoutTitle('STRENGTH A (private appointment) — private travel details'), 'Strength A');
-  assert.equal(publicWorkoutTitle('Run — Intervals — 5 × 800m hard'), 'Intervals 5x800m');
-  assert.equal(publicWorkoutTitle('Private appointment and custom coaching notes'), 'Workout');
-});
-
-test('normalizeRow preserves Andrea coach-log format', () => {
+test('normalizeRow reads explicit scoring values from Andrea coach-log rows', () => {
   const format = {
     name: 'coach',
-    headers: ['Date', 'Day', 'Wk', 'Session (coach fills detailed each week)', 'My result (weights / reps / time)', 'RPE', 'Notes', 'Weight AM'],
+    headers: [
+      'Date', 'Day', 'Wk', 'Session (coach fills detailed each week)',
+      'My result (weights / reps / time)', 'RPE', 'Notes', 'Weight AM', 'Done', 'KM',
+    ],
   };
-  const row = ['Mon 6 Jul', 'Mon', '3', 'KEY RUN', '6km done', '8.5', '', ''];
+  const row = ['Mon 6 Jul', 'Mon', '3', 'KEY RUN', '6km done', '8.5', '', '', 'TRUE', '6.03'];
   const normalized = normalizeRow(row, format, new Date('2026-07-09T10:00:00Z'));
 
   assert.equal(iso(normalized.date), '2026-07-06');
   assert.equal(normalized.planned, 'KEY RUN');
+  assert.equal(normalized.sessionTitle, 'KEY RUN');
   assert.equal(normalized.result, '6km done');
   assert.equal(normalized.rpeRaw, '8.5');
+  assert.equal(normalized.km, 6.03);
   assert.equal(normalized.logged, true);
+  assert.equal(normalized.skipped, false);
 });
 
-test('normalizeRow treats explicit no-training coach results as skipped', () => {
+test('Andrea free text no longer marks a workout complete without Done', () => {
   const format = {
     name: 'coach',
-    headers: ['Date', 'Day', 'Wk', 'Session (coach fills detailed each week)', 'My result (weights / reps / time)', 'RPE', 'Notes', 'Weight AM'],
+    headers: ['Date', 'Day', 'Wk', 'Session', 'My result', 'RPE', 'Notes', 'Done', 'KM'],
   };
-  const row = ['Wed 8 Jul', 'Wed', '3', 'STRENGTH A', 'Did not train', '', '', ''];
+  const row = ['Wed 8 Jul', 'Wed', '3', 'STRENGTH A', 'Completed everything', '9', '', 'FALSE', '4'];
   const normalized = normalizeRow(row, format, new Date('2026-07-11T10:00:00Z'));
 
-  assert.equal(normalized.logged, true);
+  assert.equal(normalized.logged, false);
   assert.equal(normalized.skipped, true);
+  assert.equal(normalized.result, '');
+  assert.equal(normalized.km, 4);
+});
+
+test('normalizeRow reads Paw checkbox values and preserves actual workout date', () => {
+  const format = {
+    name: 'checkbox',
+    headers: [
+      'Done', 'Week', 'Phase', '#', 'Date', 'Session', 'Location', 'What to do',
+      'Coaching cue', 'Actually done', 'RPE', 'KM', 'Actual Date',
+    ],
+  };
+  const row = [
+    'TRUE', '1', 'Foundation', '2', 'Tue 7 Jul', 'Run - Intervals', 'Park',
+    '5 x 800m hard', 'Even splits', 'Total distance: 6.03km', '7.5', '6.03', 'July 8',
+  ];
+  const normalized = normalizeRow(row, format, new Date('2026-07-09T10:00:00Z'));
+
+  assert.equal(iso(normalized.idDate), '2026-07-07');
+  assert.equal(iso(normalized.date), '2026-07-08');
+  assert.equal(normalized.rpeRaw, '7.5');
+  assert.equal(normalized.km, 6.03);
+  assert.equal(normalized.logged, true);
+  assert.equal(normalized.planned, 'Run - Intervals — 5 x 800m hard');
+  assert.equal(normalized.sessionTitle, 'Run - Intervals');
+});
+
+test('negative spreadsheet KM is clamped to zero', () => {
+  const format = {
+    name: 'coach',
+    headers: ['Date', 'Session', 'Done', 'KM', 'RPE'],
+  };
+  const normalized = normalizeRow(
+    ['July 8', 'Strength', 'TRUE', '-5', '7'],
+    format,
+    new Date('2026-07-09T10:00:00Z'),
+  );
+
+  assert.equal(normalized.km, 0);
 });
 
 test('moved workouts do not create a skipped row on the same actual date', () => {
@@ -158,59 +165,27 @@ test('moved workouts do not create a skipped row on the same actual date', () =>
   assert.equal(rows[1].skipped, false);
 });
 
-test('computeState keeps streaks visible without hidden point bonuses', () => {
+test('computeState totals the simplified metrics and keeps streaks', () => {
   const state = computeState([
-    { date: '2026-07-06', status: 'completed', points: 100, km: 0, kg_volume: 0 },
-    { date: '2026-07-07', status: 'completed', points: 50, km: 0, kg_volume: 0 },
-  ]);
+    { date: '2026-07-06', status: 'completed', points: 106, km: 8 },
+    { date: '2026-07-07', status: 'completed', points: 50, km: 0 },
+    { date: '2026-07-08', status: 'rest', points: 0, km: 0 },
+  ], new Date('2026-07-08T10:00:00Z'));
 
-  assert.equal(state.streak, 2);
-  assert.equal(state.total_points, 150);
+  assert.equal(state.streak, 3);
+  assert.equal(state.total_points, 156);
+  assert.equal(state.week_points, 156);
+  assert.equal(state.total_km, 8);
+  assert.equal(state.total_kg, 0);
+  assert.equal(state.sessions_completed, 2);
+  assert.equal(state.sessions_skipped, 0);
 });
 
-test('normalizeRow reads Paw checkbox RPE and actual date from first note line', () => {
-  const format = {
-    name: 'checkbox',
-    headers: ['Done', 'Week', '#', 'Phase', 'Date', 'Session', 'Location', 'Planned workout', 'Coaching cue', 'RPE', 'Actual Date', 'Run KM', 'Run time', 'External KG Volume', 'Bodyweight KG', 'Bodyweight Reps', 'Actual workout'],
-  };
-  const row = [
-    'TRUE', '1', '2', 'Foundation', 'Tue 7 Jul', 'Run - Intervals', 'Park',
-    '5 x 800m hard', 'Even splits', '7.5', 'July 8', '6.03', '31m31s', '', '75', '5',
-    'July 8\nTotal distance: 6.03km',
-  ];
-  const normalized = normalizeRow(row, format, new Date('2026-07-09T10:00:00Z'));
-
-  assert.equal(iso(normalized.idDate), '2026-07-07');
-  assert.equal(iso(normalized.date), '2026-07-08');
-  assert.equal(normalized.rpeRaw, '7.5');
-  assert.equal(normalized.logged, true);
-  assert.equal(normalized.planned, 'Run - Intervals — 5 x 800m hard');
-  assert.equal(normalized.result, 'July 8\nTotal distance: 6.03km');
-  assert.equal(normalized.notes, 'Run time: 31m31s');
-  assert.deepEqual(normalized.structured, {
-    km: 6.03,
-    kg_volume: 263,
-    parsed_by: 'structured',
-  });
-});
-
-test('structuredMetrics supports one-row bodyweight logging', () => {
-  const headers = ['Run KM', 'External KG Volume', 'Bodyweight KG', 'Bodyweight Reps'];
-  const row = ['', '500', '75', '100'];
-  const metrics = structuredMetrics(row, headerMap(headers), '');
-
-  assert.deepEqual(metrics, {
-    km: 0,
-    kg_volume: 5750,
-    parsed_by: 'structured',
-  });
-});
-
-test('structuredMetrics clamps negative spreadsheet metrics', () => {
-  const headers = ['Run KM', 'External KG Volume'];
-  assert.deepEqual(structuredMetrics(['-5', '-500'], headerMap(headers), ''), {
-    km: 0,
-    kg_volume: 0,
-    parsed_by: 'structured',
-  });
+test('recovery detection works and public titles use the Session column verbatim', () => {
+  assert.equal(isRecoveryPlan('Rest — mobility only'), true);
+  assert.equal(isRecoveryPlan('Travel day. Intervals were moved. Rest or easy shakeout.'), true);
+  assert.equal(isRecoveryPlan('Intervals 5x800m with 90s jog recovery'), false);
+  assert.equal(publicWorkoutTitle('  Football / Soccer  '), 'Football / Soccer');
+  assert.equal(publicWorkoutTitle('Run - Intervals'), 'Run - Intervals');
+  assert.equal(publicWorkoutTitle(''), 'Workout');
 });

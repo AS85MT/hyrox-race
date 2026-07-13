@@ -19,10 +19,10 @@ create table if not exists workouts (
   rpe numeric,
   status text not null default 'pending',  -- completed | skipped | rest | pending
   km numeric not null default 0,
-  kg_volume numeric not null default 0,
+  kg_volume numeric not null default 0, -- deprecated; retained so existing databases migrate safely
   points numeric not null default 0,
-  parsed_by text,                     -- 'structured' | 'claude' | 'regex'
-  public_title text,                  -- sanitized session label safe for the public site
+  parsed_by text,                     -- deprecated; scoring now uses explicit sheet columns only
+  public_title text,                  -- workout name copied from the sheet's Session column
   updated_at timestamptz not null default now()
 );
 
@@ -35,7 +35,7 @@ create table if not exists race_state (
   week_points numeric not null default 0,
   streak int not null default 0,
   total_km numeric not null default 0,
-  total_kg numeric not null default 0,
+  total_kg numeric not null default 0, -- deprecated; retained so existing databases migrate safely
   sessions_completed int not null default 0,
   sessions_skipped int not null default 0,
   updated_at timestamptz not null default now()
@@ -78,10 +78,15 @@ create policy "public read trophies" on trophies for select using (true);
 
 -- RLS limits rows, not columns. Do not expose sheet URLs, raw workout notes,
 -- parsing metadata, or operational logs through the publishable browser key.
-revoke select on athletes, workouts, sync_log from anon, authenticated;
-grant select (athlete_id, date, public_title, status, km, kg_volume, points)
+revoke select on athletes, workouts, race_state, sync_log from anon, authenticated;
+revoke select (kg_volume) on workouts from anon, authenticated;
+revoke select (total_kg) on race_state from anon, authenticated;
+grant select (athlete_id, date, public_title, status, km, points)
   on workouts to anon, authenticated;
-grant select on race_state, trophies to anon, authenticated;
+grant select (athlete_id, total_points, week_points, streak, total_km,
+  sessions_completed, sessions_skipped, updated_at)
+  on race_state to anon, authenticated;
+grant select on trophies to anon, authenticated;
 
 -- Reject malformed metrics even if a future parser or manual edit misbehaves.
 do $$

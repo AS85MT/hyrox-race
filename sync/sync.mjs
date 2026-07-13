@@ -5,34 +5,21 @@
 // Env vars (GitHub Actions secrets — never in code):
 //   SUPABASE_URL             e.g. https://kdeqfsnteprdxeboirus.supabase.co
 //   SUPABASE_SERVICE_KEY     service_role key
-//   CLAUDE_CODE_OAUTH_TOKEN  in CI only — lets `claude -p` use the Claude subscription
-//                            (generate once with `claude setup-token`). Locally the
-//                            installed claude CLI is already authenticated.
-// Free-text results are parsed by `claude -p`; regex fallback if the CLI is unavailable.
-// Rows whose result text hasn't changed since the last sync are never re-parsed.
 
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
-const run = promisify(execFile);
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const RACE_START = new Date(Date.UTC(2026, 6, 6)); // the duel officially starts Mon 6 Jul — earlier sessions don't score
 const REQUEST_TIMEOUT_MS = 20_000;
 
-// ---- scoring config: argue about fairness here ----
+// ---- scoring config: one completed workout + running distance, adjusted gently by RPE ----
 const SCORE = {
-  base: 50,            // points for completing the planned session
-  rpeRef: 7,           // base is multiplied by rpe/rpeRef (missing RPE -> 1.0)
-  perKm: 10,           // bonus per km run
-  per100kg: 1,         // bonus per 100 kg of lifted volume
-  restDay: 10,         // doing the prescribed recovery still pays
+  workout: 50,
+  perKm: 7,
+  rpeRef: 7,
+  rpeStep: 0.05,
 };
-
-// Bodyweight work is logged at session level, not exercise-by-exercise.
-// Use one conservative equivalent-load factor so logging stays simple.
-const BODYWEIGHT_FACTOR = 0.7;
 
 async function sb(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -128,91 +115,31 @@ function firstLineDate(text) {
   const first = String(text || '').split(/\r?\n/).map((x) => x.trim()).find(Boolean);
   return first ? parseSheetDate(first) : null;
 }
-function combineNotes(...parts) {
-  return parts.map((x) => String(x || '').trim()).filter(Boolean).join('\n');
-}
-function extractBodyweightKg(text) {
-  const m = /body\s*weight\s*:?\s*(\d+(?:[.,]\d+)?)\s*kg\b/i.exec(text || '');
-  return m ? parseFloat(m[1].replace(',', '.')) : null;
-}
-function countBodyweightReps(text) {
-  let remaining = String(text || '');
-  let reps = 0;
-  remaining = remaining.replace(/\b(\d+(?:[.,]\d+)?)\s*[x×]\s*(\d+(?:[.,]\d+)?)\b/gi, (_, sets, perSet) => {
-    reps += parseFloat(sets.replace(',', '.')) * parseFloat(perSet.replace(',', '.'));
-    return ' ';
-  });
-  for (const m of remaining.matchAll(/\b(\d+(?:[.,]\d+)?)(?!\d|[.,]\d|\s*(?:s|sec|secs|second|seconds|min|m|km|kg)\b)/gi)) {
-    reps += parseFloat(m[1].replace(',', '.'));
-  }
-  return reps;
-}
-function extractBodyweightVolume(text, fallbackBodyweight = null) {
-  const bodyweight = fallbackBodyweight ?? extractBodyweightKg(text);
-  if (!bodyweight) return 0;
-  let volume = 0;
-  for (const rawLine of String(text || '').split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const afterColon = line.includes(':') ? line.slice(line.indexOf(':') + 1) : line;
-    const bodyweightMovement = /\b(pull[- ]?ups?|chin[- ]?ups?|muscle[- ]?ups?|dips?|push[- ]?ups?|inverted\s+rows?|rows?|lunges?|squats?)\b/i.test(line);
-    if (!bodyweightMovement) continue;
-    // A weighted row such as "Rows 4x8 @65kg" is external load, even if the
-    // same note also contains a separate bodyweight measurement.
-    if (/\d+(?:[.,]\d+)?\s*kg\b/i.test(line) && !/body\s*weight/i.test(line)) continue;
-    const reps = countBodyweightReps(afterColon);
-    if (reps > 0) volume += bodyweight * reps * BODYWEIGHT_FACTOR;
-  }
-  return Math.round(volume);
-}
-function extractExternalKgVolume(text) {
-  let volume = 0;
-  for (const line of String(text || '').split(/\r?\n/)) {
-    if (/body\s*weight/i.test(line)) continue;
-    let lineVolume = 0;
 
-    // Common gym shorthand: "4x8 @26kg", "4 x 8 with 65kg".
-    for (const m of line.matchAll(/\b(\d+(?:[.,]\d+)?)\s*[x×]\s*(\d+(?:[.,]\d+)?)\s*(?:reps?)?\s*(?:@|at|with)?\s*(\d+(?:[.,]\d+)?)\s*kg\b/gi)) {
-      const sets = parseFloat(m[1].replace(',', '.'));
-      const reps = parseFloat(m[2].replace(',', '.'));
-      const load = parseFloat(m[3].replace(',', '.'));
-      lineVolume += sets * reps * load;
-    }
+const REQUIRED_SCORING_HEADERS = {
+  done: ['done'],
+  km: ['km', 'run km'],
+  rpe: ['rpe'],
+};
 
-    // Alternate order: "26kg DB press 4x8".
-    if (!lineVolume) {
-      for (const m of line.matchAll(/\b(\d+(?:[.,]\d+)?)\s*kg\b[^,\n;|]*?\b(\d+(?:[.,]\d+)?)\s*[x×]\s*(\d+(?:[.,]\d+)?)\b/gi)) {
-        const load = parseFloat(m[1].replace(',', '.'));
-        const sets = parseFloat(m[2].replace(',', '.'));
-        const reps = parseFloat(m[3].replace(',', '.'));
-        lineVolume += sets * reps * load;
-      }
-    }
-
-    if (lineVolume) volume += lineVolume;
-    else {
-      for (const m of line.matchAll(/(\d+(?:[.,]\d+)?)\s*kg\b/gi)) volume += parseFloat(m[1].replace(',', '.'));
-    }
-  }
-  return Math.round(volume);
+function validateScoringHeaders(headers) {
+  const map = headerMap(headers);
+  const missing = Object.entries(REQUIRED_SCORING_HEADERS)
+    .filter(([, aliases]) => !aliases.some((alias) => map.has(normHeader(alias))))
+    .map(([name]) => name.toUpperCase());
+  if (missing.length) throw new Error(`missing required scoring columns: ${missing.join(', ')}`);
+  return map;
 }
-function structuredMetrics(row, map, actualText) {
-  const km = cellNum(row, map, ['run km', 'distance km', 'actual km', 'scored km']);
-  const totalKg = cellNum(row, map, ['total kg volume', 'kg volume', 'load kg', 'strength load kg']);
-  const externalKg = cellNum(row, map, ['external kg volume', 'weighted kg volume', 'gym kg volume']) || 0;
-  let bodyweightVolume = cellNum(row, map, ['bodyweight kg volume', 'bodyweight volume kg']);
-  const bodyweightReps = cellNum(row, map, ['bodyweight reps', 'calisthenics reps', 'bw reps']);
-  if (bodyweightVolume == null && bodyweightReps != null) {
-    const bw = cellNum(row, map, ['bodyweight kg', 'body weight kg', 'bw kg']) ?? extractBodyweightKg(actualText);
-    bodyweightVolume = bw ? Math.round(bw * bodyweightReps * BODYWEIGHT_FACTOR) : 0;
-  }
-  const hasStructured = km != null || totalKg != null || externalKg > 0 || bodyweightVolume != null || bodyweightReps != null;
-  if (!hasStructured) return null;
-  return {
-    km: nonnegative(km),
-    kg_volume: nonnegative(totalKg ?? Math.round(externalKg + (bodyweightVolume || 0))),
-    parsed_by: 'structured',
-  };
+
+function rpeMultiplier(rpe) {
+  const value = validRpe(rpe);
+  return value == null ? 1 : 1 + (value - SCORE.rpeRef) * SCORE.rpeStep;
+}
+
+function scoreWorkout({ status, km, rpe }) {
+  if (status !== 'completed') return 0;
+  const subtotal = SCORE.workout + nonnegative(km) * SCORE.perKm;
+  return Math.round(subtotal * rpeMultiplier(rpe) * 10) / 10;
 }
 
 function applyMovedWorkoutGrace(normalizedRows) {
@@ -227,55 +154,9 @@ function applyMovedWorkoutGrace(normalizedRows) {
   });
 }
 
-// -- regex fallback extraction of km and kg-volume from free text --
-function regexExtract(text) {
-  let km = 0, kg = 0;
-  const totalDistance = /total\s+distance\s*:?\s*(\d+(?:[.,]\d+)?)\s*km\b/i.exec(text || '');
-  if (totalDistance) km = parseFloat(totalDistance[1].replace(',', '.'));
-  else {
-    let remaining = String(text || '');
-    remaining = remaining.replace(/\b(\d+(?:[.,]\d+)?)\s*[x×]\s*(\d+(?:[.,]\d+)?)\s*(km|m)\b/gi, (_, reps, distance, unit) => {
-      const repeated = parseFloat(reps.replace(',', '.')) * parseFloat(distance.replace(',', '.'));
-      km += unit.toLowerCase() === 'km' ? repeated : repeated / 1000;
-      return ' ';
-    });
-    for (const m of remaining.matchAll(/(\d+(?:[.,]\d+)?)\s*km\b(?!\/)/gi)) km += parseFloat(m[1].replace(',', '.')); // (?!\/) skips "km/h" speeds
-    for (const m of remaining.matchAll(/(\d{3,4})\s*m\b/gi)) km += parseInt(m[1]) / 1000; // "2305m", "800m"
-  }
-  kg += extractExternalKgVolume(text);
-  kg += extractBodyweightVolume(text);
-  return { km: Math.round(nonnegative(km) * 100) / 100, kg_volume: nonnegative(kg), parsed_by: 'regex' };
-}
-
-async function claudeExtract(planned, result, notes) {
-  const prompt = `A coach prescribed: "${planned}". The athlete logged result: "${result}" and notes: "${notes}".
-Reply with ONLY a JSON object: {"status":"completed"|"skipped"|"rest", "km": <total km run, number>, "kg_volume": <estimated total kg lifted = sum of (weight x sets x reps) where stated, else weight totals mentioned; number>, "rpe": <number or null>}. If an explicit total distance is logged, use it instead of summing interval splits. Do not count "body weight: 75kg" as a lift by itself; only use bodyweight when reps are stated. For bodyweight reps, approximate load as bodyweight x reps x 0.70. "rest" only if the plan was a recovery day. If the athlete did anything at all, status is "completed".`;
-  const { stdout } = await run('claude', ['-p', prompt, '--model', 'haiku'], { timeout: 60000 });
-  const json = JSON.parse(stdout.match(/\{[\s\S]*\}/)[0]);
-  return {
-    status: ['completed', 'skipped', 'rest'].includes(json.status) ? json.status : undefined,
-    km: nonnegative(json.km),
-    kg_volume: nonnegative(json.kg_volume),
-    rpe: validRpe(json.rpe),
-    parsed_by: 'claude',
-  };
-}
-
-function publicWorkoutTitle(planned) {
-  const text = String(planned || '').replace(/\s+/g, ' ').trim();
-  if (!text) return 'Workout';
-  if (/intervals?\s+(?:were\s+)?moved/i.test(text) && /\b(rest|shakeout|recovery)\b/i.test(text)) return 'Rest / Shakeout';
-  const strength = text.match(/\bstrength\s+([a-z])\b/i);
-  if (strength) return `Strength ${strength[1].toUpperCase()}`;
-  const intervals = text.match(/\bintervals?\b(?:\s*[—-]\s*|\s+)?(\d+\s*[x×]\s*\d+\s*m)?/i);
-  if (intervals) return `Intervals${intervals[1] ? ` ${intervals[1].replace(/\s*[x×]\s*/i, 'x').replace(/\s+/g, '')}` : ''}`;
-  if (/\blong\s+run\b/i.test(text)) return 'Long Run';
-  if (/\bpull\s*&\s*core\b/i.test(text)) return 'Pull & Core';
-  if (/\bhyrox\s+sim/i.test(text)) return 'HYROX Sim';
-  if (/^\s*(recovery|rest)\b/i.test(text)) return 'Recovery / Rest';
-  if (/\b(run|jog|shakeout)\b/i.test(text)) return 'Run';
-  if (/\b(strength|lift|gym|press|squat|deadlift)\b/i.test(text)) return 'Strength';
-  return 'Workout';
+function publicWorkoutTitle(session) {
+  const title = String(session || '').replace(/\s+/g, ' ').trim();
+  return title ? title.slice(0, 80) : 'Workout';
 }
 
 function isRecoveryPlan(planned) {
@@ -316,74 +197,74 @@ function monthClosesAt(period) {
   return new Date(Date.UTC(+year, +month, 0, 23, 0, 0, 0));
 }
 
-// Two sheet formats are supported, detected from the header row:
-//  - "coach log" (Andrea): Date | Day | Wk | Session | My result | RPE | Notes | Weight AM
-//  - "checkbox plan" (Paw): Done | Week | Phase | # | Date | Session | Location | What to do | Coaching cue | Actually done
+// Both existing sheet layouts are supported, but scoring always comes from the
+// same explicit columns: Done | KM | RPE. Free text remains private context only.
 function normalizeRow(r, format, today) {
+  const map = headerMap(format.headers || []);
+  const done = ['TRUE', 'YES', '1', 'DONE'].includes(String(cell(r, map, ['done'])).trim().toUpperCase());
+  const km = nonnegative(cellNum(r, map, ['km', 'run km']));
+  const graceDays = (plannedDate) => (today - plannedDate) / 86400000;
+
   if (format.name === 'checkbox') {
-    const map = headerMap(format.headers || []);
     const plannedDate = parseSheetDate(cell(r, map, ['date'], 4));
     if (!plannedDate) return null;
-    const done = String(cell(r, map, ['done'], 0)).trim().toUpperCase() === 'TRUE';
     const actual = cell(r, map, ['actual workout', 'actually done', 'actual notes', 'result'], 9).trim(); // optional free-text column
     const actualDate = parseSheetDate(cell(r, map, ['actual date', 'completed date', 'workout date'])) || firstLineDate(actual) || plannedDate;
-    const planned = [cell(r, map, ['session'], 5), cell(r, map, ['planned workout', 'what to do', 'planned'], 7)].filter(Boolean).join(' — ');
-    const runTime = cell(r, map, ['run time', 'run duration', 'actual run time']).trim();
-    const scoreNotes = cell(r, map, ['score notes', 'notes']);
-    const notes = combineNotes(
-      scoreNotes,
-      runTime && !actual.toLowerCase().includes(runTime.toLowerCase()) ? `Run time: ${runTime}` : '',
-    );
+    const sessionTitle = cell(r, map, ['session'], 5).trim();
+    const planned = [sessionTitle, cell(r, map, ['planned workout', 'what to do', 'planned'], 7)].filter(Boolean).join(' — ');
     // grace period: an unticked session only counts as skipped after 2 days
-    const graceDays = (today - plannedDate) / 86400000;
     return {
       date: done ? actualDate : plannedDate,
       idDate: plannedDate,
       planned,
+      sessionTitle,
       result: done ? (actual || 'TRUE') : '',
-      rpeRaw: cell(r, map, ['rpe', 'rpe rate of perceived effort 110'], 10),
-      notes,
+      rpeRaw: cell(r, map, ['rpe']),
+      notes: cell(r, map, ['score notes', 'notes']),
+      km,
       logged: done,
-      skipped: !done && graceDays > 2,
-      // score the actual result when logged; otherwise credit the prescribed volume
-      parseText: actual || planned,
-      parseResult: actual || 'Athlete ticked the session as completed exactly as prescribed',
-      structured: structuredMetrics(r, map, actual),
+      skipped: !done && graceDays(plannedDate) > 2,
     };
   }
-  const map = headerMap(format.headers || []);
-  const date = parseSheetDate(cell(r, map, ['date'], 0));
-  if (!date) return null;
-  const planned = cell(r, map, ['session coach fills detailed each week', 'session', 'planned'], 3);
+  const plannedDate = parseSheetDate(cell(r, map, ['date'], 0));
+  if (!plannedDate) return null;
+  const sessionTitle = cell(r, map, ['session coach fills detailed each week', 'session', 'planned'], 3).trim();
+  const planned = sessionTitle;
   const result = cell(r, map, ['my result weights reps time', 'my result', 'result'], 4);
-  const rpeRaw = cell(r, map, ['rpe'], 5);
   const notes = cell(r, map, ['notes'], 6);
-  const noTraining = /\b(skip(?:ped)?|no training|did not train|didn't train)\b/i.test(`${result} ${notes}`);
+  const actualDate = parseSheetDate(cell(r, map, ['actual date', 'completed date', 'workout date'])) || plannedDate;
   return {
-    date, idDate: date, planned, result, rpeRaw, notes,
-    logged: (result + notes).trim().length > 0,
-    skipped: noTraining && !/run|km|kg|min|completed|done/i.test(result),
-    parseText: result + ' ' + notes,
-    parseResult: result,
+    date: done ? actualDate : plannedDate,
+    idDate: plannedDate,
+    planned,
+    sessionTitle,
+    result: done ? (result || 'TRUE') : '',
+    rpeRaw: cell(r, map, ['rpe']),
+    notes,
+    km,
+    logged: done,
+    skipped: !done && graceDays(plannedDate) > 2,
   };
 }
 
 async function syncAthlete(athlete, today) {
-  // rows already parsed in a previous sync: skip re-parsing if the text is unchanged
   const existing = Object.fromEntries(
-    (await sb(`workouts?athlete_id=eq.${athlete.id}&select=id,planned,result_raw,notes,status,km,kg_volume,parsed_by`, { method: 'GET', headers: { Prefer: '' } }))
+    (await sb(`workouts?athlete_id=eq.${athlete.id}&select=id`, { method: 'GET', headers: { Prefer: '' } }))
       .map((w) => [w.id, w]),
   );
   const res = await fetch(athlete.sheet_csv_url, { redirect: 'follow', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`sheet ${athlete.id}: ${res.status}`);
   const rows = parseCsv(await res.text());
-  let formatName = 'coach', header = rows.findIndex((r) => (r[0] || '').trim().toLowerCase() === 'date');
-  if (header === -1) {
-    header = rows.findIndex((r) => (r[0] || '').trim().toLowerCase() === 'done');
-    formatName = 'checkbox';
-  }
+  const header = rows.findIndex((r) => {
+    const map = headerMap(r);
+    return map.has('date') && [...map.keys()].some((key) => key.startsWith('session'));
+  });
   if (header === -1) throw new Error(`sheet ${athlete.id}: no recognizable header row`);
-  const format = { name: formatName, headers: rows[header] };
+  const headers = rows[header];
+  validateScoringHeaders(headers);
+  const normalizedHeaders = headers.map(normHeader);
+  const formatName = normalizedHeaders.some((key) => key.startsWith('myresult')) ? 'coach' : 'checkbox';
+  const format = { name: formatName, headers };
   const workouts = [];
   const normalizedRows = applyMovedWorkoutGrace(rows.slice(header + 1).map((r) => normalizeRow(r, format, today)).filter(Boolean));
   if (!normalizedRows.length) throw new Error(`sheet ${athlete.id}: no workout rows found; refusing to erase stored data`);
@@ -391,47 +272,26 @@ async function syncAthlete(athlete, today) {
   for (const n of normalizedRows) {
     // future-dated rows are skipped UNLESS already done (sessions completed ahead of plan count now)
     if (!n || n.date < RACE_START || (n.date > today && !n.logged)) continue;
-    const { date, planned, result, rpeRaw, notes, logged, skipped } = n;
+    const { date, planned, sessionTitle, result, rpeRaw, notes, logged, skipped } = n;
     const isRest = isRecoveryPlan(planned);
 
     const baseId = `${athlete.id}:${iso(n.idDate || date)}`;
     const occurrence = (dateOccurrences.get(baseId) || 0) + 1;
     dateOccurrences.set(baseId, occurrence);
     const id = occurrence === 1 ? baseId : `${baseId}:${occurrence}`;
-    const prev = existing[id];
-    // regex-parsed rows are re-parsed every run (cheap, and they upgrade themselves to
-    // claude parses once the token is configured); claude-parsed rows are cached forever
-    const unchanged = prev && prev.planned === planned && prev.result_raw === result && prev.notes === notes && prev.status !== 'pending' && prev.parsed_by === 'claude';
-
-    let parsed = { km: 0, kg_volume: 0, parsed_by: 'regex' };
-    let status = skipped ? 'skipped' : logged ? 'completed' : 'pending';
-    if (n.structured && logged && !skipped) {
-      parsed = n.structured;
-    } else if (unchanged) {
-      parsed = { km: nonnegative(prev.km), kg_volume: nonnegative(prev.kg_volume), parsed_by: prev.parsed_by };
-      status = ['completed', 'skipped', 'rest'].includes(prev.status) ? prev.status : status;
-    } else if (logged && !skipped) {
-      try {
-        parsed = await claudeExtract(planned, n.parseResult, notes);
-        if (parsed.status) status = parsed.status;
-      } catch { parsed = regexExtract(n.parseText); }
-    }
-    // training for real on a planned recovery day still counts as a full session
-    if (isRest && status === 'completed' && parsed.km < 1 && !parsed.kg_volume) status = 'rest';
-
-    parsed.km = nonnegative(parsed.km);
-    parsed.kg_volume = nonnegative(parsed.kg_volume);
-    const rpe = validRpe(rpeRaw) ?? validRpe(parsed.rpe);
-    let points = 0;
-    if (status === 'completed') points = SCORE.base * ((rpe || SCORE.rpeRef) / SCORE.rpeRef) + parsed.km * SCORE.perKm + (parsed.kg_volume / 100) * SCORE.per100kg;
-    if (status === 'rest') points = SCORE.restDay;
+    // An explicit Done always means a workout happened, even if it replaced a
+    // planned rest day. An unticked planned recovery is recorded as rest.
+    const status = logged ? 'completed' : isRest ? 'rest' : skipped ? 'skipped' : 'pending';
+    const km = status === 'completed' ? nonnegative(n.km) : 0;
+    const rpe = validRpe(rpeRaw);
+    const points = scoreWorkout({ status, km, rpe });
 
     workouts.push({
       id, athlete_id: athlete.id, date: iso(date),
       planned, result_raw: result, notes, rpe,
-      status, km: parsed.km || 0, kg_volume: parsed.kg_volume || 0,
-      points: Math.round(nonnegative(points) * 10) / 10, parsed_by: parsed.parsed_by,
-      public_title: publicWorkoutTitle(planned), updated_at: new Date().toISOString(),
+      status, km, kg_volume: 0,
+      points, parsed_by: 'structured',
+      public_title: publicWorkoutTitle(sessionTitle), updated_at: new Date().toISOString(),
     });
   }
   if (workouts.length) await sb('workouts?on_conflict=id', { method: 'POST', body: JSON.stringify(workouts) });
@@ -459,14 +319,14 @@ function computeState(workouts, now = new Date()) {
     week_points: Math.round(workouts.filter((w) => isoWeek(new Date(w.date)) === thisWeek).reduce((s, w) => s + w.points, 0) * 10) / 10,
     streak,
     total_km: Math.round(workouts.reduce((s, w) => s + w.km, 0) * 10) / 10,
-    total_kg: Math.round(workouts.reduce((s, w) => s + w.kg_volume, 0)),
+    total_kg: 0,
     sessions_completed: workouts.filter((w) => w.status === 'completed').length,
     sessions_skipped: workouts.filter((w) => w.status === 'skipped').length,
   };
 }
 
 async function loadStoredWorkouts(athleteId) {
-  return sb(`workouts?athlete_id=eq.${athleteId}&select=id,athlete_id,date,status,km,kg_volume,points`, {
+  return sb(`workouts?athlete_id=eq.${athleteId}&select=id,athlete_id,date,status,km,points`, {
     method: 'GET', headers: { Prefer: '' },
   });
 }
@@ -510,9 +370,7 @@ async function awardTrophies(athletes, allWorkouts, now) {
   // Milestone badges
   for (const a of athletes) {
     const km = allWorkouts[a.id].reduce((s, w) => s + w.km, 0);
-    const kg = allWorkouts[a.id].reduce((s, w) => s + w.kg_volume, 0);
     if (km >= 100) award(`badge:100km:${a.id}`, a.id, 'badge', '100 km club', '👟');
-    if (kg >= 10000) award(`badge:10t:${a.id}`, a.id, 'badge', '10-ton lifter', '🏋️');
   }
   if (trophies.length)
     await sb('trophies?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(trophies) });
@@ -556,12 +414,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 export {
-  BODYWEIGHT_FACTOR,
+  SCORE,
   applyMovedWorkoutGrace,
   computeState,
-  extractBodyweightKg,
-  extractBodyweightVolume,
-  extractExternalKgVolume,
   firstLineDate,
   headerMap,
   isRecoveryPlan,
@@ -569,6 +424,7 @@ export {
   parseCsv,
   parseSheetDate,
   publicWorkoutTitle,
-  regexExtract,
-  structuredMetrics,
+  rpeMultiplier,
+  scoreWorkout,
+  validateScoringHeaders,
 };

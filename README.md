@@ -5,31 +5,31 @@ Gamified training race. Two Google Sheets in → points, trophies, and a cartoon
 ## Architecture
 - **Google Sheets** (one each) — source of truth for workouts.
 - **Supabase** (free tier) — Postgres storing workouts, race state, trophies. The site can read only sanitized workout summaries and race results with the publishable key; sheet URLs and raw notes stay private.
-- **GitHub Actions** (.github/workflows/sync.yml) — the "official situation check" at 14:00 & 23:00 Rome time: fetches both sheets, scores each session (base × RPE + km/kg bonuses), awards weekly medals (Sun 23:00) and monthly belts.
+- **GitHub Actions** (.github/workflows/sync.yml) — the "official situation check" at 14:00 & 23:00 Rome time: fetches both sheets, scores their explicit `Done`, `KM`, and `RPE` values, awards weekly medals (Sun 23:00) and monthly belts.
 - **index.html** — static race site (GitHub Pages), reads only from Supabase.
 
 ## Scoring (tune in `sync/sync.mjs` → `SCORE`)
-- Completed session: 50 pts × (RPE/7), + 10 pts/km run, + 1 pt/100 kg lifted
-- Prescribed recovery day done: 10 pts · Skipped: 0 pts 💀
+- Completed session subtotal: 50 pts + 7 pts/km
+- RPE multiplier: `1 + ((RPE - 7) × 0.05)` — RPE 7 is 1.00×, RPE 8 is 1.05×, RPE 6 is 0.95×
+- Final score: `(50 + 7 × KM) × RPE multiplier`
+- Missing or invalid RPE uses 1.00×. Unticked recovery, skipped, and pending rows score 0 pts.
 - Streak: displayed as consecutive resolved sessions; no hidden point bonus
 - Finish line = 6,600 pts (~450/week to race day)
 
 ## Sheet logging
-Andrea's sheet is supported in the coach-log format:
+Both sheets must contain these exact scoring columns somewhere in their header row:
 
-`Date | Day | Wk | Session | My result | RPE | Notes | Weight AM`
+`Done | KM | RPE`
 
-Paw's sheet is supported in the checkbox-plan format:
+- `Done`: Google Sheets checkbox (`TRUE` means a workout happened; leave planned rest days unticked)
+- `KM`: total running distance for that workout; use `0` for a non-running workout
+- `RPE`: effort from 1 to 10
 
-`Done | Week | Phase | # | Date | Session | Location | What to do | Coaching cue | Actually done | RPE`
+The rest of each existing layout can stay as it is. Andrea can keep the coach-log columns and add `Done` and `KM`; the existing `RPE` column is reused. Paw can keep the checkbox-plan columns and add `KM`; the existing `Done` and `RPE` columns are reused.
 
-Paw can add optional structured scoring columns after `Actually done` to avoid brittle note parsing:
+Only these three structured columns affect scoring. The `Session` cell is used directly as the public workout name. Detailed prescriptions (`What to do`), results, notes, weights, repetitions, and workout duration remain private and do not affect scoring.
 
-`Actual Date | Run KM | External KG Volume | Bodyweight KG | Bodyweight Reps | Score Notes`
-
-Keep it simple: one row per workout. For a run, fill `Actual Date`, `Run KM`, and `RPE`. For calisthenics, fill `Actual Date`, `Bodyweight KG`, `Bodyweight Reps`, and `RPE`. Free-text notes are still fine, but structured columns win when present.
-
-Bodyweight equivalent volume is always `Bodyweight KG × Bodyweight Reps × 0.70`. `External KG Volume` is only for weighted/gym work where you already know the load volume. The sync adds them together.
+Before enabling this version, add the columns to both sheets and backfill `Done`, `KM`, and `RPE` for every scoring row from 6 July onward. If a required column is missing, that athlete's sync fails safely without overwriting their stored results.
 
 ## One-time setup (remaining)
 1. **Database**: Supabase Dashboard → SQL Editor → paste supabase/schema.sql → Run. Rerun it after pulling schema changes; it also applies the privacy grants used by the public site.
@@ -37,8 +37,7 @@ Bodyweight equivalent volume is always `Bodyweight KG × Bodyweight Reps × 0.70
 3. **GitHub secrets** (Settings → Secrets and variables → Actions):
    - `SUPABASE_URL` = https://kdeqfsnteprdxeboirus.supabase.co
    - `SUPABASE_SERVICE_KEY` = service_role key (never in code!)
-   - `CLAUDE_CODE_OAUTH_TOKEN` = run `claude setup-token` locally and paste the result; lets the sync parse free-text results with `claude -p` on your Claude subscription (regex fallback if missing). Rows already parsed are cached in the DB and never re-parsed.
-4. Trigger the first sync manually: repo → Actions → "Race sync" → Run workflow.
+4. Trigger the first sync manually: repo → Actions → "Race sync" → Run workflow. It will recalculate stored workout points from the structured sheet values.
 
 ## Local preview
 From this repository's root: `python3 -m http.server 4173` → http://localhost:4173
