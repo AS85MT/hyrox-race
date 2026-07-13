@@ -142,6 +142,12 @@ function scoreWorkout({ status, km, rpe }) {
   return Math.round(subtotal * rpeMultiplier(rpe) * 10) / 10;
 }
 
+function workoutStatus({ isRest, logged, skipped }) {
+  if (isRest) return 'rest';
+  if (logged) return 'completed';
+  return skipped ? 'skipped' : 'pending';
+}
+
 function applyMovedWorkoutGrace(normalizedRows) {
   const completedDates = new Set(
     normalizedRows
@@ -279,9 +285,9 @@ async function syncAthlete(athlete, today) {
     const occurrence = (dateOccurrences.get(baseId) || 0) + 1;
     dateOccurrences.set(baseId, occurrence);
     const id = occurrence === 1 ? baseId : `${baseId}:${occurrence}`;
-    // An explicit Done always means a workout happened, even if it replaced a
-    // planned rest day. An unticked planned recovery is recorded as rest.
-    const status = logged ? 'completed' : isRest ? 'rest' : skipped ? 'skipped' : 'pending';
+    // Planned recovery rows never earn the completion bonus, even when their
+    // sheet checkbox is ticked. Log a replacement workout as its own row.
+    const status = workoutStatus({ isRest, logged, skipped });
     const km = status === 'completed' ? nonnegative(n.km) : 0;
     const rpe = validRpe(rpeRaw);
     const points = scoreWorkout({ status, km, rpe });
@@ -427,4 +433,5 @@ export {
   rpeMultiplier,
   scoreWorkout,
   validateScoringHeaders,
+  workoutStatus,
 };

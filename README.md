@@ -12,7 +12,7 @@ Gamified training race. Two Google Sheets in → points, trophies, and a cartoon
 - Completed session subtotal: 50 pts + 7 pts/km
 - RPE multiplier: `1 + ((RPE - 7) × 0.05)` — RPE 7 is 1.00×, RPE 8 is 1.05×, RPE 6 is 0.95×
 - Final score: `(50 + 7 × KM) × RPE multiplier`
-- Missing or invalid RPE uses 1.00×. Unticked recovery, skipped, and pending rows score 0 pts.
+- Missing or invalid RPE uses 1.00×. Planned recovery, skipped, and pending rows score 0 pts, even if a recovery checkbox is ticked.
 - Streak: displayed as consecutive resolved sessions; no hidden point bonus
 - Finish line = 6,600 pts (~450/week to race day)
 
@@ -27,7 +27,7 @@ Both sheets must contain these exact scoring columns somewhere in their header r
 
 The rest of each existing layout can stay as it is. Andrea can keep the coach-log columns and add `Done` and `KM`; the existing `RPE` column is reused. Paw can keep the checkbox-plan columns and add `KM`; the existing `Done` and `RPE` columns are reused.
 
-Only these three structured columns affect scoring. The `Session` cell is used directly as the public workout name. Detailed prescriptions (`What to do`), results, notes, weights, repetitions, and workout duration remain private and do not affect scoring.
+Only these three structured columns affect scoring. The public workout log shows status, KM, RPE, and points, while the `Session` cell is used directly as the workout name. Detailed prescriptions (`What to do`), results, notes, weights, repetitions, and workout duration remain private and do not affect scoring.
 
 Before enabling this version, add the columns to both sheets and backfill `Done`, `KM`, and `RPE` for every scoring row from 6 July onward. If a required column is missing, that athlete's sync fails safely without overwriting their stored results.
 

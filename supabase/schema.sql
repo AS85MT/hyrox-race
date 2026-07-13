@@ -81,7 +81,7 @@ create policy "public read trophies" on trophies for select using (true);
 revoke select on athletes, workouts, race_state, sync_log from anon, authenticated;
 revoke select (kg_volume) on workouts from anon, authenticated;
 revoke select (total_kg) on race_state from anon, authenticated;
-grant select (athlete_id, date, public_title, status, km, points)
+grant select (athlete_id, date, public_title, status, km, rpe, points)
   on workouts to anon, authenticated;
 grant select (athlete_id, total_points, week_points, streak, total_km,
   sessions_completed, sessions_skipped, updated_at)

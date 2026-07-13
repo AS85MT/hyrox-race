@@ -12,6 +12,7 @@ import {
   rpeMultiplier,
   scoreWorkout,
   validateScoringHeaders,
+  workoutStatus,
 } from '../sync/sync.mjs';
 
 const iso = (date) => date.toISOString().slice(0, 10);
@@ -48,6 +49,18 @@ test('only completed workouts score and negative KM is ignored', () => {
   assert.equal(scoreWorkout({ status: 'skipped', km: 10, rpe: 10 }), 0);
   assert.equal(scoreWorkout({ status: 'pending', km: 10, rpe: 10 }), 0);
   assert.equal(scoreWorkout({ status: 'completed', km: -10, rpe: 7 }), 50);
+});
+
+test('planned rest always resolves to REST and earns zero points', () => {
+  const status = workoutStatus({ isRest: true, logged: true, skipped: false });
+  assert.equal(status, 'rest');
+  assert.equal(scoreWorkout({ status, km: 10, rpe: 10 }), 0);
+});
+
+test('non-rest rows resolve from Done and the skip grace period', () => {
+  assert.equal(workoutStatus({ isRest: false, logged: true, skipped: false }), 'completed');
+  assert.equal(workoutStatus({ isRest: false, logged: false, skipped: true }), 'skipped');
+  assert.equal(workoutStatus({ isRest: false, logged: false, skipped: false }), 'pending');
 });
 
 test('required scoring columns accept KM and the legacy Run KM spelling', () => {
