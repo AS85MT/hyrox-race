@@ -473,7 +473,7 @@ async function loadStoredWorkouts(athleteId) {
 
 async function awardTrophies(athletes, allWorkouts, now) {
   const trophies = [];
-  const award = (id, athlete_id, kind, label, emoji, period) =>
+  const award = (id, athlete_id, kind, label, emoji, period = null) =>
     trophies.push({ id, athlete_id, kind, label, emoji, period, awarded_at: now.toISOString() });
 
   // Weekly medals are catch-up/idempotent: any closed ISO week can be awarded.
