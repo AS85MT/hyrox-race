@@ -13,7 +13,7 @@ Gamified training race. Two Google Sheets in → points, trophies, and a cartoon
 - RPE multiplier: `1 + ((RPE - 7) × 0.05)` — RPE 7 is 1.00×, RPE 8 is 1.05×, RPE 6 is 0.95×
 - Final score: `(50 + 7 × KM) × RPE multiplier`
 - Missing or invalid RPE uses 1.00×. Planned recovery, skipped, and pending rows score 0 pts, even if a recovery checkbox is ticked.
-- Workout frequency: completed workouts in finished race weeks divided by the number of finished race weeks; the current partial week is excluded and planned rest or pending rows are hidden from the workout log
+- Workout frequency: completed workouts in finished race weeks divided by the number of finished race weeks; the current partial week is excluded and the public workout log shows completed workouts only
 - Finish line = 6,600 pts (~450/week to race day)
 
 ## Sheet logging
