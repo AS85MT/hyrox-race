@@ -105,6 +105,34 @@
   .logstatus.completed { background:#dff0dc; color:#226421; }
   .logstatus.skipped { background:#f2d5d2; color:#8a261e; }
 
+  /* workout calendar */
+  .calendar-legend { display:flex; justify-content:center; gap:22px; margin-bottom:14px; font-size:12px; font-weight:700; }
+  .calendar-legend span { display:flex; align-items:center; gap:7px; }
+  .legend-dot { width:12px; height:12px; border-radius:50%; display:inline-block; }
+  .legend-dot.andrea, .workout-dot.andrea { background:var(--blue); }
+  .legend-dot.paw, .workout-dot.paw { background:var(--red); }
+  .calendar-months { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+  .calendar-month { border:1px solid var(--line); border-radius:10px; background:#ede7d7; padding:10px; }
+  .calendar-month h3 { font-family:'Oswald',sans-serif; font-size:15px; letter-spacing:1px; text-align:center; margin-bottom:9px; }
+  .calendar-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; }
+  .calendar-weekday { color:var(--muted); font-size:9px; font-weight:800; letter-spacing:.5px; text-align:center; text-transform:uppercase; padding-bottom:3px; }
+  .calendar-day { min-height:66px; background:var(--card); border:1px solid var(--line); border-radius:6px; padding:5px; }
+  .calendar-day.empty { background:transparent; border-color:transparent; }
+  .calendar-day.today { border-color:var(--navy); box-shadow:inset 0 0 0 1px var(--navy); }
+  .calendar-date { display:block; color:var(--muted); font-size:10px; font-weight:700; margin-bottom:6px; }
+  .calendar-dots { display:flex; flex-wrap:wrap; gap:5px; }
+  .workout-dot { width:16px; height:16px; border:2px solid #fff; border-radius:50%; padding:0; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.28); transition:transform .15s ease, box-shadow .15s ease; }
+  .workout-dot:hover, .workout-dot:focus-visible { outline:2px solid var(--navy); outline-offset:2px; transform:scale(1.18); box-shadow:0 2px 5px rgba(0,0,0,.35); }
+  .calendar-detail { min-height:98px; margin-top:14px; border:1px solid var(--line); border-radius:10px; background:#ede7d7; padding:12px 14px; }
+  .calendar-detail.empty { display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px; text-align:center; }
+  .calendar-detail-top { display:flex; align-items:center; gap:10px; margin-bottom:7px; }
+  .calendar-detail-date, .calendar-detail-who { font-family:'Oswald',sans-serif; font-weight:700; letter-spacing:.5px; }
+  .calendar-detail-status { margin-left:auto; background:#dff0dc; color:#226421; border-radius:999px; padding:4px 8px; font-size:9px; font-weight:800; letter-spacing:.6px; }
+  .calendar-detail-title { font-weight:800; margin-bottom:9px; }
+  .calendar-detail-metrics { display:flex; gap:20px; }
+  .calendar-metric { color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.5px; }
+  .calendar-metric b { color:var(--ink); font-family:'Oswald',sans-serif; font-size:16px; margin-right:4px; }
+
   /* trophies */
   .tro-row { display:flex; justify-content:space-around; margin-bottom:12px; }
   .tro { text-align:center; width:56px; }
@@ -142,6 +170,13 @@
     .logplan { grid-column:1/-1; }
     .logtitle { white-space:normal; }
     .logstatus { justify-self:start; }
+    .calendar-months { grid-template-columns:1fr; }
+    .calendar-grid { gap:2px; }
+    .calendar-day { min-height:52px; padding:4px; }
+    .calendar-date { margin-bottom:4px; }
+    .workout-dot { width:17px; height:17px; }
+    .calendar-detail-top { flex-wrap:wrap; }
+    .calendar-detail-status { margin-left:0; }
   }
 </style>
 </head>
@@ -269,6 +304,18 @@
           <div class="frequency-item"><span class="frequency-icon">🔴</span><div><div class="frequency-value" id="avg-p">—</div><div class="frequency-label">PAW · FINISHED WEEKS</div></div></div>
         </div>
         <div class="badges" id="badges"></div>
+      </div>
+    </div>
+
+    <div class="block wide">
+      <h2>WORKOUT CALENDAR</h2>
+      <div class="pad">
+        <div class="calendar-legend">
+          <span><i class="legend-dot andrea"></i>Andrea</span>
+          <span><i class="legend-dot paw"></i>Paw</span>
+        </div>
+        <div class="calendar-months" id="workout-calendar"></div>
+        <div class="calendar-detail empty" id="calendar-detail" aria-live="polite">Hover or tap a dot to see the workout details.</div>
       </div>
     </div>
 
@@ -419,6 +466,77 @@ function render(state, trophies, workouts) {
     .filter(x => x.status === 'completed')
     .slice()
     .sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+
+  // calendar view of the same completed workouts shown in the table
+  const calendar = document.getElementById('workout-calendar');
+  const calendarDetail = document.getElementById('calendar-detail');
+  const pad2 = n => String(n).padStart(2, '0');
+  const dateKey = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+  const workoutsByDate = new Map();
+  logRows.forEach((workout, index) => {
+    if (!workoutsByDate.has(workout.date)) workoutsByDate.set(workout.date, []);
+    workoutsByDate.get(workout.date).push({ workout, index });
+  });
+  const latestWorkoutTime = logRows.reduce((latest, x) => Math.max(latest, new Date(`${x.date}T00:00:00+02:00`).getTime()), RACE_START.getTime());
+  const calendarThrough = new Date(Math.max(Math.min(now.getTime(), RACE_DAY.getTime()), latestWorkoutTime));
+  const monthCursor = new Date(RACE_START.getFullYear(), RACE_START.getMonth(), 1);
+  const finalMonth = new Date(calendarThrough.getFullYear(), calendarThrough.getMonth(), 1);
+  const monthCards = [];
+  while (monthCursor <= finalMonth) {
+    const year = monthCursor.getFullYear();
+    const month = monthCursor.getMonth();
+    const firstDayOffset = (new Date(year, month, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cells = Array.from({ length: firstDayOffset }, () => '<div class="calendar-day empty" aria-hidden="true"></div>');
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dayDate = new Date(year, month, day);
+      const key = dateKey(dayDate);
+      const dots = (workoutsByDate.get(key) || []).map(({ workout, index }) => {
+        const who = workout.athlete_id === A ? 'Andrea' : 'Paw';
+        const whoClass = workout.athlete_id === A ? 'andrea' : 'paw';
+        const title = String(workout.public_title || 'Workout');
+        const label = `${who}: ${title}, ${Number(workout.km||0).toFixed(1)} km, RPE ${fmtRpe(workout.rpe)}, ${Math.round(workout.points||0)} points`;
+        return `<button type="button" class="workout-dot ${whoClass}" data-workout-index="${index}" aria-label="${esc(label)}" title="${esc(label)}"></button>`;
+      }).join('');
+      cells.push(`<div class="calendar-day${key === dateKey(now) ? ' today' : ''}">
+        <span class="calendar-date">${day}</span>
+        <div class="calendar-dots">${dots}</div>
+      </div>`);
+    }
+    const monthName = monthCursor.toLocaleDateString('en-GB', { month:'long', year:'numeric' }).toUpperCase();
+    monthCards.push(`<section class="calendar-month"><h3>${monthName}</h3><div class="calendar-grid">
+      ${['MON','TUE','WED','THU','FRI','SAT','SUN'].map(day => `<div class="calendar-weekday">${day}</div>`).join('')}
+      ${cells.join('')}
+    </div></section>`);
+    monthCursor.setMonth(monthCursor.getMonth() + 1);
+  }
+  calendar.innerHTML = monthCards.join('');
+  const showCalendarDetail = index => {
+    const workout = logRows[index];
+    if (!workout) return;
+    const who = workout.athlete_id === A ? 'Andrea' : 'Paw';
+    const color = workout.athlete_id === A ? 'var(--blue)' : 'var(--red)';
+    const date = new Date(`${workout.date}T00:00:00+02:00`).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }).toUpperCase();
+    calendarDetail.classList.remove('empty');
+    calendarDetail.innerHTML = `<div class="calendar-detail-top">
+      <span class="calendar-detail-date">${date}</span>
+      <span class="calendar-detail-who" style="color:${color}">${who}</span>
+      <span class="calendar-detail-status">COMPLETED</span>
+    </div>
+    <div class="calendar-detail-title">${esc(workout.public_title || 'Workout')}</div>
+    <div class="calendar-detail-metrics">
+      <span class="calendar-metric"><b>${Number(workout.km||0).toFixed(1)}</b>KM</span>
+      <span class="calendar-metric"><b>${fmtRpe(workout.rpe)}</b>RPE</span>
+      <span class="calendar-metric"><b>${Math.round(workout.points||0)}</b>PTS</span>
+    </div>`;
+  };
+  calendar.querySelectorAll('.workout-dot').forEach(dot => {
+    const show = () => showCalendarDetail(Number(dot.dataset.workoutIndex));
+    dot.addEventListener('mouseenter', show);
+    dot.addEventListener('focus', show);
+    dot.addEventListener('click', show);
+  });
+
   const totalFor = (rows) => rows.reduce((acc, x) => {
     acc.km += Number(x.km || 0);
     if (x.status === 'completed') acc.sessions++;
