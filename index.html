@@ -414,9 +414,9 @@ function render(state, trophies, workouts) {
     document.getElementById('sessionsbar-'+k).style.width = (monthTotals[id].sessions / maxMonthSessions * 100).toFixed(1) + '%';
   }
 
-  // complete workout log (planned rest days are not workouts)
+  // complete resolved workout log (planned rest and pending rows are not workouts)
   const logRows = workouts
-    .filter(x => x.status !== 'rest')
+    .filter(x => x.status !== 'rest' && x.status !== 'pending')
     .slice()
     .sort((a,b) => (b.date || '').localeCompare(a.date || ''));
   const totalFor = (rows) => rows.reduce((acc, x) => {
