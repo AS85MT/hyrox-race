@@ -113,12 +113,12 @@
   .tro .lb { font-size:10px; font-weight:700; margin-top:2px; letter-spacing:.5px; }
   .tro .win { font-size:9px; color:var(--muted); }
 
-  /* streaks & badges */
-  .flames { display:flex; justify-content:space-around; margin-bottom:14px; }
-  .flame { display:flex; align-items:center; gap:8px; }
-  .flame .f { font-size:30px; }
-  .flame .d { font-family:'Oswald',sans-serif; font-weight:700; font-size:22px; line-height:1; }
-  .flame .l { font-size:10px; color:var(--muted); letter-spacing:1px; }
+  /* workout frequency & badges */
+  .frequency { display:flex; justify-content:space-around; margin-bottom:14px; }
+  .frequency-item { display:flex; align-items:center; gap:8px; }
+  .frequency-icon { font-size:30px; }
+  .frequency-value { font-family:'Oswald',sans-serif; font-weight:700; font-size:22px; line-height:1; }
+  .frequency-label { font-size:10px; color:var(--muted); letter-spacing:1px; }
   .badges { display:flex; justify-content:space-around; }
   .badge { font-family:'Oswald',sans-serif; font-weight:700; font-size:11px; letter-spacing:.5px; background:var(--navy); color:var(--gold); border-radius:10px; padding:10px 12px; text-align:center; border:2px solid var(--gold); }
   .badge.locked { background:#d8d3c4; color:#8a8676; border-color:#b5b0a0; }
@@ -262,11 +262,11 @@
     </div>
 
     <div class="block">
-      <h2>STREAKS &amp; BADGES</h2>
+      <h2>WORKOUTS / WEEK &amp; BADGES</h2>
       <div class="pad">
-        <div class="flames">
-          <div class="flame"><span class="f">🔵</span><div><div class="d" id="streak-a">0</div><div class="l">ANDREA · SESSIONS</div></div></div>
-          <div class="flame"><span class="f">🔥</span><div><div class="d" id="streak-p">0</div><div class="l">PAW · SESSIONS</div></div></div>
+        <div class="frequency">
+          <div class="frequency-item"><span class="frequency-icon">🔵</span><div><div class="frequency-value" id="avg-a">—</div><div class="frequency-label">ANDREA · FINISHED WEEKS</div></div></div>
+          <div class="frequency-item"><span class="frequency-icon">🔴</span><div><div class="frequency-value" id="avg-p">—</div><div class="frequency-label">PAW · FINISHED WEEKS</div></div></div>
         </div>
         <div class="badges" id="badges"></div>
       </div>
@@ -288,7 +288,9 @@ const SUPABASE_URL = 'https://kdeqfsnteprdxeboirus.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_nsDrpuvi-sZQCNxwftidKg_-jzugMps'; // publishable: safe in public code, read-only via RLS
 const POINTS_GOAL = 6600;   // Jul 6 -> Oct 17 at ~450 pts/week
 const WEEKLY_GOAL = 450;
+const RACE_START = new Date('2026-07-06T00:00:00+02:00');
 const RACE_DAY = new Date('2026-10-17T09:00:00+02:00');
+const WEEK_MS = 7 * 864e5;
 const A = 'andrea', P = 'paul';
 const romeNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Rome' }));
 
@@ -412,11 +414,11 @@ function render(state, trophies, workouts) {
     document.getElementById('sessionsbar-'+k).style.width = (monthTotals[id].sessions / maxMonthSessions * 100).toFixed(1) + '%';
   }
 
-  // recent workout log
+  // complete workout log (planned rest days are not workouts)
   const logRows = workouts
+    .filter(x => x.status !== 'rest')
     .slice()
-    .sort((a,b) => (b.date || '').localeCompare(a.date || ''))
-    .slice(0, 12);
+    .sort((a,b) => (b.date || '').localeCompare(a.date || ''));
   const totalFor = (rows) => rows.reduce((acc, x) => {
     acc.km += Number(x.km || 0);
     if (x.status === 'completed') acc.sessions++;
@@ -490,9 +492,23 @@ function render(state, trophies, workouts) {
       : `<div class="tro locked"><div class="ic">🔒</div><div class="lb">${label}</div><div class="win">—</div></div>`;
   }
 
-  // streaks & badges
-  document.getElementById('streak-a').textContent = st[A].streak || 0;
-  document.getElementById('streak-p').textContent = st[P].streak || 0;
+  // average completed workouts across finished race weeks only
+  const totalRaceWeeks = Math.ceil((RACE_DAY.getTime() - RACE_START.getTime()) / WEEK_MS);
+  const finishedRaceWeeks = Math.min(
+    totalRaceWeeks,
+    Math.max(0, Math.floor((now.getTime() - RACE_START.getTime()) / WEEK_MS)),
+  );
+  const finishedWeeksCutoff = new Date(RACE_START.getTime() + finishedRaceWeeks * WEEK_MS);
+  for (const [id,k] of [[A,'a'],[P,'p']]) {
+    const completed = w[id].filter(x =>
+      x.status === 'completed' && new Date(`${x.date}T00:00:00+02:00`) < finishedWeeksCutoff
+    ).length;
+    document.getElementById('avg-'+k).textContent = finishedRaceWeeks
+      ? (completed / finishedRaceWeeks).toFixed(1)
+      : '—';
+  }
+
+  // badges
   const badges = [];
   for (const [id, nm] of [[A,'ANDREA'],[P,'PAW']]) {
     if ((st[id].total_km||0) >= 100) badges.push(`<div class="badge">100KM CLUB<br>${nm}</div>`);
@@ -505,7 +521,7 @@ function render(state, trophies, workouts) {
 async function load() {
   try {
     const [state, trophies, workouts] = await Promise.all([
-      q('race_state', 'select=athlete_id,total_points,week_points,streak,total_km,sessions_completed,sessions_skipped,updated_at'),
+      q('race_state', 'select=athlete_id,total_points,week_points,total_km,sessions_completed,sessions_skipped,updated_at'),
       q('trophies', 'select=*&order=awarded_at.desc'),
       loadWorkouts(),
     ]);
@@ -517,7 +533,7 @@ async function load() {
 }
 
 async function loadWorkouts() {
-  const filter = '&status=neq.pending&order=date.asc';
+  const filter = '&order=date.asc';
   try {
     return await q('workouts', 'select=athlete_id,date,public_title,status,km,rpe,points' + filter);
   } catch {

@@ -310,20 +310,11 @@ async function syncAthlete(athlete, today) {
 }
 
 function computeState(workouts, now = new Date()) {
-  // streak: consecutive planned sessions completed (not calendar days — plans differ:
-  // Andrea trains 7 days/week, Paw 5), counting back from the most recent resolved session
-  const resolved = workouts.filter((w) => w.status !== 'pending').sort((a, b) => a.date.localeCompare(b.date));
-  let streak = 0;
-  for (let i = resolved.length - 1; i >= 0; i--) {
-    if (resolved[i].status === 'completed' || resolved[i].status === 'rest') streak++;
-    else break;
-  }
   const thisWeek = isoWeek(now);
   const base = workouts.reduce((s, w) => s + w.points, 0);
   return {
     total_points: Math.round(base * 10) / 10,
     week_points: Math.round(workouts.filter((w) => isoWeek(new Date(w.date)) === thisWeek).reduce((s, w) => s + w.points, 0) * 10) / 10,
-    streak,
     total_km: Math.round(workouts.reduce((s, w) => s + w.km, 0) * 10) / 10,
     total_kg: 0,
     sessions_completed: workouts.filter((w) => w.status === 'completed').length,

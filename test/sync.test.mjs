@@ -178,14 +178,13 @@ test('moved workouts do not create a skipped row on the same actual date', () =>
   assert.equal(rows[1].skipped, false);
 });
 
-test('computeState totals the simplified metrics and keeps streaks', () => {
+test('computeState totals the simplified workout metrics', () => {
   const state = computeState([
     { date: '2026-07-06', status: 'completed', points: 106, km: 8 },
     { date: '2026-07-07', status: 'completed', points: 50, km: 0 },
     { date: '2026-07-08', status: 'rest', points: 0, km: 0 },
   ], new Date('2026-07-08T10:00:00Z'));
 
-  assert.equal(state.streak, 3);
   assert.equal(state.total_points, 156);
   assert.equal(state.week_points, 156);
   assert.equal(state.total_km, 8);
